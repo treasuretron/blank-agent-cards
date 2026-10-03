@@ -71,6 +71,33 @@ test('authoring quotas, host start, private snapshots, authorization, chat, turn
   await assert.rejects(rooms.handle(peer().connection, { type: 'joinRoom', code: room.code, name: 'late' }), /started/)
 })
 
+test('snapshots timestamp the in-flight interpretation and clear it afterwards', async t => {
+  let release: () => void = () => {}
+  const slow = new MockAgent(async () => { await new Promise<void>(resolve => { release = resolve }); return { narration: 'slow ruling', effects: [], rulesPatch: {} } })
+  const { rooms, room, a, b } = await setup(t, slow)
+  await author(rooms, a.connection, b.connection)
+  await rooms.handle(a.connection, { type: 'startGame' })
+  const current = room.state!.turn.playerId === a.connection.playerId ? a.connection : b.connection
+  const cardId = room.state!.players.find(p => p.id === current.playerId)!.hand[0]
+  const before = Date.now()
+  const played = rooms.handle(current, { type: 'playCard', cardId })
+  // The card is validated in a child engine before the agent is asked, so wait
+  // for the turn to actually reach the agent.
+  while (!rooms.view(room, current.playerId!).agentPending) await new Promise(resolve => setTimeout(resolve, 5))
+  // The table can tell the agent is working, and roughly how long it has been.
+  const pending = rooms.view(room, current.playerId!)
+  assert.equal(pending.agentPending, true)
+  assert.ok(pending.agentPendingSince! >= before && pending.agentPendingSince! <= Date.now())
+  assert.equal(pending.agentTimeoutMs, config.agent.timeoutMs)
+  release()
+  await played
+  const settled = rooms.view(room, current.playerId!)
+  assert.equal(settled.agentPending, false)
+  assert.equal(settled.agentPendingSince, null)
+  // A restart must never resurrect the stale timer for a card already answered.
+  assert.ok(room.pendingSince === undefined)
+})
+
 test('resume and persistence preserve tokens, cards, state and private hands', async t => {
   const { rooms, room, a, b, directory } = await setup(t)
   await author(rooms, a.connection, b.connection)
@@ -167,6 +194,21 @@ test('verdict and merged rules validated; agent timeout bounded', async () => {
   assert.ok(invalidVerdict.error)
   const hung = await interpretPlay(new MockAgent(() => new Promise(() => {})), input, 0, 30)
   assert.match(hung.error!, /Agent timeout/)
+})
+
+test('a stalled agent is not retried, but a rejected proposal is', async () => {
+  const { state, play } = engineInput()
+  const input = { state, card: { ...play.card, png: draft.art }, playerId: 'a', rules: state.rules, engineSource: source, playerNames: { a: 'A', b: 'B' }, history: [] }
+  let stalledCalls = 0
+  const stalled = await interpretPlay(new MockAgent(() => { stalledCalls++; return new Promise(() => {}) }), input, 3, 30)
+  assert.match(stalled.error!, /Agent timeout/)
+  assert.equal(stalledCalls, 1, 'a stall must not spend the remaining retries')
+  assert.equal(stalled.attempts, 1)
+  // A real rejection still gets its retries, since the model can correct it.
+  let calls = 0
+  const retried = await interpretPlay(new MockAgent(() => { calls++; return { narration: 'bad', effects: [], rulesPatch: { direction: 0 } } }), input, 3, 2000)
+  assert.equal(calls, 4)
+  assert.ok(retried.error)
 })
 
 test('successful retry uses last-good state, not the rejected candidate', async () => {

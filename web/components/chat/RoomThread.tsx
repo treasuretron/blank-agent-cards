@@ -11,7 +11,7 @@ import {
   type TextMessagePartComponent,
 } from "@assistant-ui/react"
 import type { RoomSnapshot } from "@cards/shared"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { CardTile } from "@/components/cards/CardTile"
 import { CardZoom } from "@/components/cards/CardZoom"
 import cardStyles from "@/components/cards/cards.module.css"
@@ -170,8 +170,31 @@ const VerdictDetails: DataMessagePartComponent = ({ data }) => {
 
 const QUIPS = ["reading the card", "squinting at the drawing", "consulting the rules", "thinking about it", "deciding your fate"]
 
+// The referee is a free model on a shared provider, so a turn can run long.
+// Say so as it happens instead of leaving one frozen line on screen.
+function useElapsed(since?: number) {
+  const [now, setNow] = useState<number | null>(null)
+  useEffect(() => {
+    if (since === undefined) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [since])
+  return since === undefined || now === null ? null : Math.max(0, Math.round((now - since) / 1000))
+}
+
+function phase(elapsed: number, timeoutMs: number | undefined) {
+  const limit = (timeoutMs ?? 90000) / 1000
+  if (elapsed >= limit * 0.95) return `Nearly out of time — ${elapsed}s`
+  if (elapsed >= limit * 0.75) return `Still going at ${elapsed}s…`
+  if (elapsed >= limit * 0.4) return `Taking a while — ${elapsed}s so far`
+  return null
+}
+
 const Interpreting: DataMessagePartComponent = ({ data }) => {
   const p = data as PendingPartData
+  const elapsed = useElapsed(p.since)
+  const note = elapsed === null ? null : phase(elapsed, p.timeoutMs)
   return (
     <div className={styles.pending} role="status" aria-live="polite">
       <span className={styles.spinner} aria-hidden />
@@ -180,6 +203,7 @@ const Interpreting: DataMessagePartComponent = ({ data }) => {
         <span className={styles.quips} aria-hidden>
           {QUIPS.map((q) => <span key={q}>{q}</span>)}
         </span>
+        {note && <span className={styles.waiting}> {note}</span>}
       </span>
     </div>
   )

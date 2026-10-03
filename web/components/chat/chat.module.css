@@ -43,6 +43,7 @@
 .error { white-space: pre-wrap; font-size: 0.8rem; max-height: 10em; overflow: auto; margin: 4px 0 0; }
 
 .pending { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; }
+.waiting { color: var(--muted); font-style: italic; }
 .spinner { width: 22px; height: 22px; border: 3px solid var(--ink); border-top-color: transparent; border-radius: 50%; animation: spin 900ms linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .quips { display: inline-grid; }

@@ -17,6 +17,8 @@ type SavedRoom = {
   code: string; config: GameConfig; phase: Phase; seats: Seat[]; cards: Card[];
   state: GameState | null; source: string; version: number; thread: ThreadEntry[];
   history: HistoryEntry[]; pendingCard: string | null; learning?: LearningStatus;
+  // When the in-flight interpretation began, for the table's status copy.
+  pendingSince?: number;
   // Cards the agent has written for this room so far.
   generated?: number;
   // The player who ended the game early, if anyone did.
@@ -95,7 +97,7 @@ export class Rooms {
       myCards: room.phase === 'authoring' ? room.cards.filter(c => c.authorId === id).map(view) : [],
       turn: room.state ? { playerId: room.state.turn.playerId, number: room.state.turn.number } : null,
       rules: room.state?.rules ?? null, engineVersion: room.version, deckCount: room.state?.deck.length ?? 0,
-      agentPending: room.pendingCard !== null, winnerId: room.state?.winnerId ?? null,
+      agentPending: room.pendingCard !== null, agentPendingSince: room.pendingCard !== null ? room.pendingSince ?? null : null, agentTimeoutMs: room.config.agent.timeoutMs, winnerId: room.state?.winnerId ?? null,
       gameCards: room.phase === 'ended' ? room.cards.map(view) : [],
       learning: room.config.mode === 'learning' ? room.learning ?? { notes: 0, report: 'none' } : null,
       endedBy: room.endedBy ?? null,
@@ -350,7 +352,7 @@ export class Rooms {
       if (next.hand.length) { state.turn = { playerId: next.id, number: state.turn.number + 1, playsThisTurn: 0 }; break }
     }
     room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'verdict', cardId, verdict: { narration: 'Interpretation failed. Card discarded without effects; turn advanced.', effects: [], rulesPatch: {} }, engineChanged: false, engineError: error, events: [] })
-    room.pendingCard = null
+    room.pendingCard = null; room.pendingSince = undefined
     if (!state.players.some(p => p.hand.length)) { room.phase = 'ended'; room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'system', text: 'No playable hands remain. Game ended without a winner.' }) }
   }
 
@@ -361,19 +363,23 @@ export class Rooms {
     const validation = await runEngine(room.source, state, { playerId: id, card: cardFace(card), effects: [] }, room.config.agent.timeoutMs, false)
     if (!validation.valid.ok) throw new Error(validation.valid.reason ?? 'Play rejected')
     room.pendingCard = cardId
+    room.pendingSince = Date.now()
     room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'play', authorId: id, card: { ...cardFace(card), imageUrl: '' } })
     await this.save(room); this.broadcast(room)
     const started = Date.now(), rulesBefore = state.rules, turn = state.turn.number
-    const outcome = await interpretPlay(this.gameAgent(room.config), { card, playerId: id, rules: state.rules, engineSource: room.source, state, history: room.history, mechanics: mechanics.catalog, playerNames: Object.fromEntries(room.seats.map(s => [s.id, s.name])) }, room.config.agent.maxRollbackRetries, room.config.agent.timeoutMs)
-    const metrics = { durationMs: Date.now() - started, attempts: outcome.attempts, engineChanged: false, failed: true, engineError: outcome.error }
     const playerName = room.seats.find(s => s.id === id)!.name
+    // Provider latency is the usual cause of a long turn, so log every attempt.
+    const outcome = await interpretPlay(this.gameAgent(room.config), { card, playerId: id, rules: state.rules, engineSource: room.source, state, history: room.history, mechanics: mechanics.catalog, playerNames: Object.fromEntries(room.seats.map(s => [s.id, s.name])) }, room.config.agent.maxRollbackRetries, room.config.agent.timeoutMs, ({ attempt, durationMs, error }) =>
+      console.log(`[agent] room=${room.code} turn=${turn} card=${JSON.stringify(card.title)} player=${playerName} attempt=${attempt} durationMs=${durationMs} outcome=${error ? `failed: ${error}` : 'ok'}`))
+    const metrics = { durationMs: Date.now() - started, attempts: outcome.attempts, engineChanged: false, failed: true, engineError: outcome.error }
+    console.log(`[agent] room=${room.code} turn=${turn} player=${playerName} totalMs=${metrics.durationMs} attempts=${outcome.attempts} outcome=${outcome.error ? `failed: ${outcome.error}` : 'ok'}`)
     if (outcome.error !== undefined || !outcome.result?.result || !outcome.verdict) {
       this.failedPlay(room, cardId, outcome.error ?? 'Invalid result')
       this.observe(room, { turn, playerName, card, rulesBefore, rulesAfter: rulesBefore, verdict: null, metrics })
       return
     }
     const changed = room.source !== outcome.source
-    room.source = outcome.source!; room.version = outcome.result.version; room.state = outcome.result.result.state; room.pendingCard = null
+    room.source = outcome.source!; room.version = outcome.result.version; room.state = outcome.result.result.state; room.pendingCard = null; room.pendingSince = undefined
     room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'verdict', cardId, verdict: outcome.verdict, engineChanged: changed, events: outcome.result.result.events.map(e => e.text) })
     room.history.push({ turn: state.turn.number, playerName: room.seats.find(s => s.id === id)!.name, card: { title: card.title, text: card.text }, narration: outcome.verdict.narration })
     if (room.state.winnerId) room.phase = 'ended'

@@ -16,7 +16,7 @@ export type VerdictPartData = {
   events: string[]
   failed: boolean
 }
-export type PendingPartData = { authorName: string; cardTitle?: string }
+export type PendingPartData = { authorName: string; cardTitle?: string; since?: number; timeoutMs?: number }
 
 export type RoomMessageCustom = { authorId?: string; authorName?: string; mine?: boolean; kind: ThreadEntry["kind"] | "pending" }
 
@@ -124,6 +124,8 @@ export function toMessages(snap: RoomSnapshot): RoomMessage[] {
     const data: PendingPartData = {
       authorName: play?.kind === "play" ? nameOf(snap, play.authorId) : "someone",
       cardTitle: play?.kind === "play" ? play.card.title : undefined,
+      since: snap.agentPendingSince ?? (play?.kind === "play" ? play.at : undefined),
+      timeoutMs: snap.agentTimeoutMs,
     }
     out.push({
       id: `pending:${play?.id ?? "?"}`,

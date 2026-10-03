@@ -1,15 +1,15 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { RoomSnapshot, ThreadEntry } from "@cards/shared"
-import { describeEffect, toMessages, type VerdictPartData } from "../lib/thread.ts"
+import { describeEffect, toMessages, type PendingPartData, type VerdictPartData } from "../lib/thread.ts"
 
 const players = [
   { id: "a", name: "Trav", score: 0, handCount: 3, cardsSubmitted: 4, connected: true, isHost: true },
   { id: "b", name: "Lucas", score: 0, handCount: 3, cardsSubmitted: 4, connected: true, isHost: false },
 ]
 
-function snap(thread: ThreadEntry[], agentPending = false): RoomSnapshot {
-  return { code: "ABCD", phase: "play", youId: "a", players, thread, agentPending } as unknown as RoomSnapshot
+function snap(thread: ThreadEntry[], agentPending = false, extra: Partial<RoomSnapshot> = {}): RoomSnapshot {
+  return { code: "ABCD", phase: "play", youId: "a", players, thread, agentPending, agentTimeoutMs: 90000, ...extra } as unknown as RoomSnapshot
 }
 
 const card = { id: "c1", authorId: "b", title: "Thief", text: "steal 5", imageUrl: "/x" }
@@ -72,8 +72,20 @@ test("a pending play adds a running agent message for the unanswered card", () =
   const last = msgs.at(-1)!
   assert.equal(last.role, "assistant")
   assert.deepEqual(last.status, { type: "running" })
-  assert.deepEqual(last.content[0], { type: "data", name: "pending", data: { authorName: "Lucas", cardTitle: "Thief" } })
+  // `since` and `timeoutMs` drive the elapsed-time status in the thread.
+  assert.deepEqual(last.content[0], {
+    type: "data",
+    name: "pending",
+    data: { authorName: "Lucas", cardTitle: "Thief", since: 3, timeoutMs: 90000 },
+  })
   assert.equal(toMessages(snap([], false)).length, 0)
+})
+
+test("the server's pending start time wins over the play timestamp", () => {
+  const play: ThreadEntry = { id: "3", at: 3, kind: "play", authorId: "b", card }
+  const data = (toMessages(snap([play], true, { agentPendingSince: 5000 })).at(-1)!.content[0] as { data: PendingPartData }).data
+  assert.equal(data.since, 5000)
+  assert.equal(data.timeoutMs, 90000)
 })
 
 test("effects are described with names, unknown kinds keep their fields", () => {

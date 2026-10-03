@@ -68,6 +68,11 @@ export type RoomSnapshot = {
   engineVersion: number
   deckCount: number
   agentPending: boolean
+  // When the current interpretation started, so the table can see the agent
+  // working instead of a frozen card; null when nothing is in flight.
+  agentPendingSince: number | null
+  // The per-attempt ceiling the agent is held to, for the countdown copy.
+  agentTimeoutMs: number
   winnerId: string | null
   thread: ThreadEntry[]
   // Every card in the game, revealed once the phase is "ended"; empty before.

@@ -51,15 +51,20 @@ function validateMechanicalState(before: GameState, after: GameState, play: Play
   if (after.players.some(p => p.hand.includes(play.card.id)) || !after.discard.includes(play.card.id)) throw new Error('Played card must be discarded')
 }
 
-export async function interpretPlay(agent: GameAgent, input: AgentInput, retries: number, timeout: number) {
+export type AttemptReport = { attempt: number; durationMs: number; error?: string }
+
+export async function interpretPlay(agent: GameAgent, input: AgentInput, retries: number, timeout: number, onAttempt?: (report: AttemptReport) => void) {
   let previousError: string | undefined
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const attemptStarted = Date.now()
+    const report = (error?: string) => onAttempt?.({ attempt: attempt + 1, durationMs: Date.now() - attemptStarted, error })
+    let stalled = false
     try {
       let timer: ReturnType<typeof setTimeout> | undefined
       const controller = new AbortController()
       const raw = await Promise.race([
         (agent as GameAgent & { interpret(input: AgentInput, signal?: AbortSignal): ReturnType<GameAgent['interpret']> }).interpret(structuredClone({ ...input, previousError }), controller.signal),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(new Error('Agent timeout')); reject(new Error('Agent timeout')) }, timeout) }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => { stalled = true; controller.abort(new Error('Agent timeout')); reject(new Error('Agent timeout')) }, timeout) }),
       ]).finally(() => clearTimeout(timer))
       const verdict = AgentVerdictSchema.parse(raw)
       const rules = RulesSchema.parse({ ...input.rules, ...verdict.rulesPatch })
@@ -67,8 +72,14 @@ export async function interpretPlay(agent: GameAgent, input: AgentInput, retries
       const result = await runEngine(source, { ...structuredClone(input.state), rules }, { playerId: input.playerId, card: input.card, effects: verdict.effects }, timeout)
       if (!result.valid.ok || !result.result) throw new Error(result.valid.reason ?? 'Candidate rejected play')
       result.result.state.winnerId = result.win.winnerId
+      report()
       return { verdict, source, result, error: undefined, attempts: attempt + 1 }
-    } catch (error) { previousError = String(error) }
+    } catch (error) {
+      previousError = String(error); report(previousError)
+      // A stall is the provider, not a rejected proposal: the model never sent
+      // anything to correct, so retrying only doubles the table's wait.
+      if (stalled) return { error: previousError, attempts: attempt + 1 }
+    }
   }
   return { error: previousError ?? 'Interpretation failed', attempts: retries + 1 }
 }
