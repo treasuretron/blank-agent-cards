@@ -1,7 +1,8 @@
 import { z } from "zod"
 import type { CardFace } from "./card.ts"
 import { CardDraftSchema } from "./card.ts"
-import { ConfigOverridesSchema, type GameConfig } from "./config.ts"
+import { ConfigOverridesSchema, GameModeSchema, type GameConfig } from "./config.ts"
+import type { LearningStatus } from "./learning.ts"
 import { SavedCardMetaSchema, SavedCardNameSchema, type LibraryCard } from "./library.ts"
 import type { AgentVerdict, Rules } from "./rules.ts"
 
@@ -23,6 +24,8 @@ export const ClientMsgSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("listLibrary") }),
   z.object({ type: z.literal("importCard"), png: z.string().startsWith("data:image/png;base64,"), meta: SavedCardMetaSchema }),
   z.object({ type: z.literal("importLibraryCard"), name: SavedCardNameSchema }),
+  // Host only, before the deal.
+  z.object({ type: z.literal("setMode"), mode: GameModeSchema }),
 ])
 export type ClientMsg = z.infer<typeof ClientMsgSchema>
 
@@ -64,6 +67,8 @@ export type RoomSnapshot = {
   thread: ThreadEntry[]
   // Every card in the game, revealed once the phase is "ended"; empty before.
   gameCards: CardView[]
+  // Learning mode progress; null in fast mode. The report is served over HTTP.
+  learning: LearningStatus | null
 }
 
 export type ServerMsg =

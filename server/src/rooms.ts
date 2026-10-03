@@ -2,9 +2,10 @@ import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { baseRules, cardFace, GameConfigSchema, type Card, type CardView, type ClientMsg, type SavedCardMeta, type GameAgent, type GameConfig, type GameState, type HistoryEntry, type Phase, type RoomSnapshot, type ServerMsg, type ThreadEntry } from '@cards/shared'
+import { baseRules, cardFace, GameConfigSchema, type Card, type CardView, type ClientMsg, type SavedCardMeta, type LearningNote, type LearningStatus, type Rules, type AgentVerdict, ReflectionSchema, type GameAgent, type GameConfig, type GameState, type HistoryEntry, type Phase, type RoomSnapshot, type ServerMsg, type ThreadEntry } from '@cards/shared'
 import { composeCard, normalizeSavedCard } from './cards.ts'
 import { Library } from './library.ts'
+import { LearningStore, learningStats, renderReport } from './learning.ts'
 import { interpretPlay, runEngine } from './engineHost.ts'
 import { MockAgent } from './agent/mock.ts'
 import { OpenCodeAgent } from './agent/opencode.ts'
@@ -14,16 +15,19 @@ type Seat = { id: string; name: string; token: string }
 type SavedRoom = {
   code: string; config: GameConfig; phase: Phase; seats: Seat[]; cards: Card[];
   state: GameState | null; source: string; version: number; thread: ThreadEntry[];
-  history: HistoryEntry[]; pendingCard: string | null;
+  history: HistoryEntry[]; pendingCard: string | null; learning?: LearningStatus;
 }
-export type Room = SavedRoom & { peers: Map<string, Peer>; queue: Promise<void> }
+// `learning` runs reflections and the report in order, off the turn's critical path.
+export type Room = SavedRoom & { peers: Map<string, Peer>; queue: Promise<void>; learningChain: Promise<void> }
 const baseSource = await readFile(fileURLToPath(new URL('../../game/engine.mjs', import.meta.url)), 'utf8')
 
 export class Rooms {
   readonly rooms = new Map<string, Room>()
   readonly library: Library
+  readonly learningStore: LearningStore
   constructor(readonly config: GameConfig, readonly directory: string, readonly agent?: GameAgent, library?: Library) {
     this.library = library ?? new Library(path.join(directory, 'library'))
+    this.learningStore = new LearningStore(path.join(directory, 'learning'))
   }
 
   private gameAgent(config: GameConfig): GameAgent {
@@ -38,19 +42,21 @@ export class Rooms {
     for (const file of await readdir(this.directory)) {
       if (!/^[A-Z]{4}\.json$/.test(file)) continue
       const saved = JSON.parse(await readFile(path.join(this.directory, file), 'utf8')) as SavedRoom
-      GameConfigSchema.parse(saved.config)
+      saved.config = GameConfigSchema.parse(saved.config)
       this.gameAgent(saved.config)
-      const room: Room = { ...saved, peers: new Map(), queue: Promise.resolve() }
+      const room: Room = { ...saved, peers: new Map(), queue: Promise.resolve(), learningChain: Promise.resolve() }
       this.rooms.set(room.code, room)
       if (room.pendingCard && room.state) {
         this.failedPlay(room, room.pendingCard, 'Server restarted during interpretation; no effects applied.')
         await this.save(room)
       }
+      // A report interrupted by a restart is rebuilt from the notes on disk.
+      if (room.learning?.report === 'pending') { room.learning.report = 'none'; this.finishLearning(room) }
     }
   }
 
   async save(room: Room) {
-    const { peers: _peers, queue: _queue, ...saved } = room
+    const { peers: _peers, queue: _queue, learningChain: _learningChain, ...saved } = room
     const filename = path.join(this.directory, `${room.code}.json`)
     await writeFile(`${filename}.tmp`, JSON.stringify(saved), { mode: 0o600 })
     await rename(`${filename}.tmp`, filename)
@@ -85,6 +91,7 @@ export class Rooms {
       rules: room.state?.rules ?? null, engineVersion: room.version, deckCount: room.state?.deck.length ?? 0,
       agentPending: room.pendingCard !== null, winnerId: room.state?.winnerId ?? null,
       gameCards: room.phase === 'ended' ? room.cards.map(view) : [],
+      learning: room.config.mode === 'learning' ? room.learning ?? { notes: 0, report: 'none' } : null,
       thread: room.thread.map(entry => entry.kind === 'play' ? { ...entry, card: view(room.cards.find(c => c.id === entry.card.id)!) } : entry.kind === 'verdict' ? { ...entry, verdict: { ...entry.verdict, enginePatch: undefined } } : entry),
     }
   }
@@ -103,6 +110,12 @@ export class Rooms {
     const publicCard = room.thread.some(e => e.kind === 'play' && e.card.id === cardId)
     if (!card || !(publicCard || room.phase === 'ended' || (room.phase === 'authoring' && card.authorId === seat.id) || room.state?.players.find(p => p.id === seat.id)?.hand.includes(cardId))) return null
     return Buffer.from(card.png.slice('data:image/png;base64,'.length), 'base64')
+  }
+
+  async learningReport(code: string, token: string) {
+    const room = this.rooms.get(code)
+    if (!room || !this.seat(room, token) || room.learning?.report !== 'ready') return null
+    return this.learningStore.report(code)
   }
 
   async libraryImage(code: string, name: string, token: string) {
@@ -130,7 +143,7 @@ export class Rooms {
       let code: string
       do { code = Array.from({ length: 4 }, () => String.fromCharCode(65 + randomInt(26))).join('') } while (this.rooms.has(code))
       const seat = { id: randomUUID(), name: message.name, token: randomBytes(32).toString('base64url') }
-      const room: Room = { code, config, phase: 'authoring', seats: [seat], cards: [], state: null, source: baseSource, version: 1, thread: [], history: [], pendingCard: null, peers: new Map(), queue: Promise.resolve() }
+      const room: Room = { code, config, phase: 'authoring', seats: [seat], cards: [], state: null, source: baseSource, version: 1, thread: [], history: [], pendingCard: null, peers: new Map(), queue: Promise.resolve(), learningChain: Promise.resolve() }
       this.rooms.set(code, room)
       try { await this.save(room) } catch (error) { this.rooms.delete(code); throw error }
       this.attach(peer, room, seat); return
@@ -173,6 +186,10 @@ export class Rooms {
         if (room.cards.filter(c => c.authorId === id).length >= room.config.cardsPerPlayer) throw new Error('Card quota reached')
         const png = await composeCard(message.card, room.config.card)
         room.cards.push({ id: randomUUID(), authorId: id, title: message.card.title, text: message.card.text, png })
+      } else if (message.type === 'setMode') {
+        if (id !== room.seats[0].id) throw new Error('Only the host can change the mode')
+        if (room.phase !== 'authoring') throw new Error('The mode is fixed once the deck is dealt')
+        room.config = { ...room.config, mode: message.mode }
       } else if (message.type === 'importCard') {
         await this.importCard(room, id, message.png, message.meta)
       } else if (message.type === 'importLibraryCard') {
@@ -226,13 +243,74 @@ export class Rooms {
     room.pendingCard = cardId
     room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'play', authorId: id, card: { ...cardFace(card), imageUrl: '' } })
     await this.save(room); this.broadcast(room)
+    const started = Date.now(), rulesBefore = state.rules, turn = state.turn.number
     const outcome = await interpretPlay(this.gameAgent(room.config), { card, playerId: id, rules: state.rules, engineSource: room.source, state, history: room.history, playerNames: Object.fromEntries(room.seats.map(s => [s.id, s.name])) }, room.config.agent.maxRollbackRetries, room.config.agent.timeoutMs)
-    if (outcome.error !== undefined || !outcome.result?.result || !outcome.verdict) { this.failedPlay(room, cardId, outcome.error ?? 'Invalid result'); return }
+    const metrics = { durationMs: Date.now() - started, attempts: outcome.attempts, engineChanged: false, failed: true, engineError: outcome.error }
+    const playerName = room.seats.find(s => s.id === id)!.name
+    if (outcome.error !== undefined || !outcome.result?.result || !outcome.verdict) {
+      this.failedPlay(room, cardId, outcome.error ?? 'Invalid result')
+      this.observe(room, { turn, playerName, card, rulesBefore, rulesAfter: rulesBefore, verdict: null, metrics })
+      return
+    }
     const changed = room.source !== outcome.source
     room.source = outcome.source!; room.version = outcome.result.version; room.state = outcome.result.result.state; room.pendingCard = null
     room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'verdict', cardId, verdict: outcome.verdict, engineChanged: changed, events: outcome.result.result.events.map(e => e.text) })
     room.history.push({ turn: state.turn.number, playerName: room.seats.find(s => s.id === id)!.name, card: { title: card.title, text: card.text }, narration: outcome.verdict.narration })
     if (room.state.winnerId) room.phase = 'ended'
     else if (!room.state.players.some(p => p.hand.length)) { room.phase = 'ended'; room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'system', text: 'No playable hands remain. Game ended without a winner.' }) }
+    this.observe(room, { turn, playerName, card, rulesBefore, rulesAfter: room.state.rules, verdict: outcome.verdict, metrics: { ...metrics, engineChanged: changed, failed: false, engineError: undefined } })
   }
+
+  // Learning mode: queue a note (and the agent's reflection) for this play, and the
+  // report once the game is over. Never awaited by the turn itself.
+  private observe(room: Room, play: { turn: number; playerName: string; card: Card; rulesBefore: Rules; rulesAfter: Rules; verdict: AgentVerdict | null; metrics: LearningNote['metrics'] }) {
+    if (room.config.mode !== 'learning') return
+    const agent = this.gameAgent(room.config)
+    const { verdict, card } = play
+    const rulesChanged = Object.keys(play.rulesAfter).filter(key => JSON.stringify(play.rulesAfter[key]) !== JSON.stringify(play.rulesBefore[key]))
+    room.learningChain = room.learningChain.then(async () => {
+      const note: LearningNote = {
+        at: new Date().toISOString(), turn: play.turn, cardId: card.id, playerName: play.playerName, card: { title: card.title, text: card.text },
+        effects: verdict?.effects.map(e => e.kind) ?? [], rulesChanged, metrics: play.metrics, reflection: null,
+      }
+      if (verdict && agent.reflect) {
+        const { enginePatch, ...rest } = verdict
+        try {
+          note.reflection = ReflectionSchema.parse(await withTimeout(agent.reflect({ turn: play.turn, playerName: play.playerName, card: cardFace(card), rulesBefore: play.rulesBefore, rulesAfter: play.rulesAfter, verdict: rest, enginePatchChars: enginePatch?.length ?? 0, metrics: play.metrics }), room.config.agent.timeoutMs))
+        } catch (error) { note.reflectionError = error instanceof Error ? error.message : String(error) }
+      }
+      await this.learningStore.append(room.code, note)
+      room.learning = { notes: (room.learning?.notes ?? 0) + 1, report: room.learning?.report ?? 'none' }
+      this.broadcast(room)
+    }).catch(error => console.error(`learning note for ${room.code} failed:`, error))
+    if (room.phase === 'ended') this.finishLearning(room)
+  }
+
+  private finishLearning(room: Room) {
+    if (room.config.mode !== 'learning' || (room.learning && room.learning.report !== 'none')) return
+    room.learning = { notes: room.learning?.notes ?? 0, report: 'pending' }
+    const agent = this.gameAgent(room.config)
+    room.learningChain = room.learningChain.then(async () => {
+      const notes = await this.learningStore.notes(room.code)
+      const stats = learningStats(notes)
+      let advice: string | null = null, adviceError: string | undefined
+      if (agent.report) {
+        try { advice = await withTimeout(agent.report({ gameCode: room.code, notes, stats }), room.config.agent.timeoutMs) } catch (error) { adviceError = error instanceof Error ? error.message : String(error) }
+      }
+      await this.learningStore.writeReport(room.code, renderReport(room.code, notes, stats, advice, adviceError))
+      room.learning = { notes: notes.length, report: 'ready' }
+    }).catch(error => {
+      console.error(`learning report for ${room.code} failed:`, error)
+      room.learning = { notes: room.learning?.notes ?? 0, report: 'failed' }
+    }).then(() => {
+      // Persist through the room queue so this never races a turn's save.
+      room.queue = room.queue.then(() => this.save(room)).catch(() => {})
+      this.broadcast(room)
+    })
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Learning step timed out')), ms) })]).finally(() => clearTimeout(timer))
 }

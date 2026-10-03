@@ -26,6 +26,15 @@ export async function createGameServer(options: { config: GameConfig; directory:
       if (image) { response.setHeader('Content-Type', 'image/png'); response.end(image); return }
       response.writeHead(404); response.end('Not found'); return
     }
+    const report = url.pathname.match(/^\/rooms\/([A-Z]{4})\/learning-report$/)
+    if (request.method === 'GET' && report) {
+      const bearer = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1]
+      rooms.learningReport(report[1], bearer ?? url.searchParams.get('token') ?? '').then(markdown => {
+        if (markdown !== null) { response.setHeader('Content-Type', 'text/markdown; charset=utf-8'); response.end(markdown); return }
+        response.writeHead(404); response.end('Not found')
+      }, () => { response.writeHead(500); response.end('Error') })
+      return
+    }
     const saved = url.pathname.match(/^\/rooms\/([A-Z]{4})\/library\/([a-z0-9-]+--[a-f0-9-]{36})$/)
     if (request.method === 'GET' && saved) {
       const bearer = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1]

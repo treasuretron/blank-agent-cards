@@ -1,4 +1,4 @@
-import type { AgentInput, AgentVerdict, GameAgent } from '@cards/shared'
+import type { AgentInput, AgentVerdict, GameAgent, Reflection, ReflectionInput, ReportInput } from '@cards/shared'
 
 export class MockAgent implements GameAgent {
   constructor(private readonly script?: (input: AgentInput) => AgentVerdict | Promise<AgentVerdict>) {}
@@ -15,5 +15,20 @@ export class MockAgent implements GameAgent {
     if (/skip/i.test(text)) effects.push({ kind: 'skip', amount: 1 })
     if (!effects.length && !target) effects.push({ kind: 'score', amount: 10 })
     return { narration: `Mock interpretation: ${text.trim() || 'Gain 10 points.'}`, effects, rulesPatch: target ? { targetScore: Number(target[1]) } : {} }
+  }
+
+  // Learning mode stand-ins: tag mechanics by effect kind and rule key.
+  async reflect(input: ReflectionInput): Promise<Reflection> {
+    const mechanics = [...new Set([...input.verdict.effects.map(e => e.kind), ...Object.keys(input.verdict.rulesPatch).map(k => `rule-${k.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`)])]
+    return {
+      mechanics,
+      integration: Object.keys(input.verdict.rulesPatch).length ? `Changed ${Object.keys(input.verdict.rulesPatch).join(', ')}.` : 'No rule changes; immediate effects only.',
+      friction: input.metrics.attempts > 1 ? 'Needed a retry.' : input.enginePatchChars ? 'Rewrote the engine.' : 'None.',
+      suggestion: input.enginePatchChars ? 'Make this a reusable mechanic instead of an engine rewrite.' : 'Already handled by built-in effects.',
+    }
+  }
+
+  async report(input: ReportInput): Promise<string> {
+    return `Mock advice for ${input.gameCode} over ${input.notes.length} plays: every ruling used built-in effects.`
   }
 }

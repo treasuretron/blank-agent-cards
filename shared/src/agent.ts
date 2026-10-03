@@ -1,6 +1,7 @@
 import type { Card } from "./card.ts"
 import type { AgentVerdict, Rules } from "./rules.ts"
 import type { GameState } from "./state.ts"
+import type { Reflection, ReflectionInput, ReportInput } from "./learning.ts"
 
 export type HistoryEntry = {
   turn: number
@@ -23,4 +24,9 @@ export type AgentInput = {
 
 export interface GameAgent {
   interpret(input: AgentInput): Promise<AgentVerdict>
+  // Learning mode only, run outside the turn's critical path. An agent without
+  // these still gets server-measured notes and a stats-only report.
+  reflect?(input: ReflectionInput): Promise<Reflection>
+  // Markdown advice for making fast mode faster, from the game's notes.
+  report?(input: ReportInput): Promise<string>
 }

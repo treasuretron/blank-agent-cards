@@ -36,3 +36,6 @@
 
 .importActions { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
 .importReport { margin: 8px 0; padding-left: 20px; color: var(--muted); font-size: 0.9rem; }
+.mode { display: flex; gap: 8px; align-items: center; margin: 12px 0 0; }
+.mode span { color: var(--muted); }
+.mode button:disabled[aria-pressed="true"] { opacity: 1; cursor: default; }

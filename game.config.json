@@ -1,4 +1,5 @@
 {
+  "mode": "fast",
   "maxPlayers": 6,
   "minPlayers": 2,
   "cardsPerPlayer": 4,

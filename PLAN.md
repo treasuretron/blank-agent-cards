@@ -200,7 +200,7 @@ stall on it.
 | **M4** | `opencode.ts` adapter, `prompt.ts`, `opencode serve` on the VM | A + C | M1 |
 | **M5** | Deploy to `hackathon-drive`, player auth, persistence, key rotation | A + C | M1–M4 |
 | **M6** | End-of-game card saving + import into new games | Agent (branch `m6-save-cards`) | M1–M3 |
-| **M7** | Fast mode / learning mode, learning reports, reusable mechanic snippets | — | M4 |
+| **M7** | Fast mode / learning mode, learning reports, reusable mechanic snippets | Agent (branch `m7-modes`) | M4 |
 
 M1, M2, M3 run in parallel once M0 lands. M6 and M7 are independent of each other.
 
@@ -296,11 +296,9 @@ Open question: should imported cards be allowed to exceed the quota?
 - **Learning** — after each card's verdict, the agent runs a second reflection pass
   outside the turn's critical path. It looks at the card, its own narration and patch,
   how the change fit with the existing rules (conflicts, overrides, dead rules), how
-  long the turn took, and whether a rollback happened. Notes are appended to
-  `game/learning/<gameCode>.jsonl`.
-- **End-of-game report** — learning mode writes `game/learning/<gameCode>-report.md`:
-  recurring mechanics, slow or failed turns, prompt and engine friction, and specific
-  advice for making fast mode faster.
+  long the turn took, and whether a rollback happened.
+- **End-of-game report** — recurring mechanics, slow or failed turns, prompt and
+  engine friction, and specific advice for making fast mode faster.
 - **Mechanic snippets** — when reports show mechanics that come up again and again
   (steal points, skip turn, reverse order, draw extra, conditional scoring, etc.),
   pull them into a curated, human-reviewed library at `game/mechanics/*.mjs`. Each
@@ -309,6 +307,34 @@ Open question: should imported cards be allowed to exceed the quota?
   `engine.mjs`: fewer tokens, fewer rollbacks.
   The snippets are read-only to the agent, so the "agent writes one file" blast
   radius stays the same.
+
+*Status:* mode, learning notes and the report are implemented on branch `m7-modes`.
+Mechanic snippets are not built yet; the design question is below.
+- `mode` lives in `game.config.json` (default `fast`). It can be overridden in
+  `createRoom`, and the host can switch it in the studio before the deal
+  (`setMode`). Saved rooms with no mode load as fast.
+- Notes go to `<ROOM_DATA_DIR>/learning/<CODE>.jsonl`, not `game/`. `game/` is the
+  agent's working directory, and room data already lives under `ROOM_DATA_DIR`.
+  The report is `<CODE>-report.md` in the same place. Players can read it from the
+  game-over screen; it's served at `/rooms/:code/learning-report` and requires a
+  seat token.
+- The server measures each note's metrics itself: duration, attempts, engine rewrite,
+  failure. The agent's reflection is optional (`GameAgent.reflect` / `report`). If
+  that step is missing or fails, the note and the numbers-only report still get
+  written. Reflections run in order on a per-room chain and never delay the next
+  turn.
+- The OpenCode agent's reflect and report steps are text-only throwaway sessions with
+  every permission denied, the same setup as `interpret`.
+- Verified by 10 server tests and a Playwright run with the mock agent. Not yet run
+  against the real Space Bunny model.
+- **Snippet design question:** the engine runs in a sandboxed child process that can
+  only read its own worker file, so `engine.mjs` can't `import` from
+  `game/mechanics/`. Proposal: treat each snippet as a new *effect kind*. The worker
+  loads the reviewed snippets. Before calling `applyPlay`, it applies any effect whose
+  `kind` has a snippet and removes it from the list; the engine handles the rest. The
+  agent then just emits `{ kind: "steal-points", ... }`, the engine contract stays the
+  same, and no rewrite is needed. Trade-off: snippet effects always run before the
+  engine's own effects.
 
 ## Open items
 

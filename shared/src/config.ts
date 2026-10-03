@@ -1,6 +1,12 @@
 import { z } from "zod"
 
+// "fast" plays as quickly as possible. "learning" also has the agent reflect on
+// every ruling and write an end-of-game report on how to make fast mode faster.
+export const GameModeSchema = z.enum(["fast", "learning"])
+export type GameMode = z.infer<typeof GameModeSchema>
+
 const ConfigFieldsSchema = z.object({
+  mode: GameModeSchema.default("fast"),
   maxPlayers: z.number().int().min(1),
   minPlayers: z.number().int().min(1),
   cardsPerPlayer: z.number().int().min(1),
@@ -36,5 +42,8 @@ export const ConfigOverridesSchema = ConfigFieldsSchema.pick({
   cardsPerPlayer: true,
   handSize: true,
   targetScore: true,
-}).partial()
+})
+  .partial()
+  // Without a default here, an omitted mode keeps the server's configured one.
+  .extend({ mode: GameModeSchema.optional() })
 export type ConfigOverrides = z.infer<typeof ConfigOverridesSchema>

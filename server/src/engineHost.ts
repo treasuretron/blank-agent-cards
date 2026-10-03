@@ -66,8 +66,8 @@ export async function interpretPlay(agent: GameAgent, input: AgentInput, retries
       const result = await runEngine(source, { ...structuredClone(input.state), rules }, { playerId: input.playerId, card: input.card, effects: verdict.effects }, timeout)
       if (!result.valid.ok || !result.result) throw new Error(result.valid.reason ?? 'Candidate rejected play')
       result.result.state.winnerId = result.win.winnerId
-      return { verdict, source, result, error: undefined }
+      return { verdict, source, result, error: undefined, attempts: attempt + 1 }
     } catch (error) { previousError = String(error) }
   }
-  return { error: previousError ?? 'Interpretation failed' }
+  return { error: previousError ?? 'Interpretation failed', attempts: retries + 1 }
 }

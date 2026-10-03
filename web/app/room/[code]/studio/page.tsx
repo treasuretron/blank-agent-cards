@@ -191,6 +191,25 @@ function Studio({ snap }: { snap: RoomSnapshot }) {
                   </li>
                 ))}
               </ul>
+              <div className={styles.mode} role="group" aria-label="Game mode">
+                <span>mode</span>
+                {(["fast", "learning"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={config.mode === mode}
+                    disabled={!me?.isHost || config.mode === mode}
+                    onClick={() => room.send({ type: "setMode", mode })}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+              <p className={styles.note}>
+                {config.mode === "learning"
+                  ? "Learning mode: the agent takes notes on every ruling and writes a report on how to play faster."
+                  : "Fast mode: rulings only, no notes."}
+              </p>
               {me?.isHost ? (
                 <>
                   <button type="button" className="primary" disabled={!!startBlocker} onClick={() => room.send({ type: "startGame" })}>
