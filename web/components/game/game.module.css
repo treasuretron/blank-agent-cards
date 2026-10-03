@@ -37,6 +37,10 @@
 .cardButton { padding: 0; border: none; box-shadow: none; background: none; border-radius: var(--radius); }
 .cardButton:active:not(:disabled) { transform: none; box-shadow: none; }
 .selected .cardButton > div > div { box-shadow: 5px 5px 0 var(--ink); }
+/* The picked card blows up to double size so it's readable; click again to put it back. */
+.cardButton > div > div { transition: width 160ms; }
+.selected .cardButton > div > div { width: min(340px, 85vw); }
+.selected .cardButton > div > div > div { font-size: 1.5rem; }
 
 .overlay { position: fixed; inset: 0; background: rgba(255, 255, 255, 0.85); display: grid; place-items: center; z-index: 10; padding: 20px; }
 .overlayCard { border: var(--line); border-radius: var(--radius); background: var(--paper); box-shadow: 8px 8px 0 var(--ink); padding: 24px 28px; width: min(420px, 100%); display: grid; gap: 12px; }
