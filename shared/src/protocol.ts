@@ -26,6 +26,9 @@ export const ClientMsgSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("importLibraryCard"), name: SavedCardNameSchema }),
   // Host only, before the deal.
   z.object({ type: z.literal("setMode"), mode: GameModeSchema }),
+  // Ask the agent to write cards: into your quota while authoring, into the deck
+  // during play (or to restart a game that ran out of cards).
+  z.object({ type: z.literal("generateCards"), count: z.number().int().min(1).max(20) }),
 ])
 export type ClientMsg = z.infer<typeof ClientMsgSchema>
 
@@ -69,6 +72,10 @@ export type RoomSnapshot = {
   gameCards: CardView[]
   // Learning mode progress; null in fast mode. The report is served over HTTP.
   learning: LearningStatus | null
+  // The agent is writing cards for this player; one request per room at a time.
+  generating: { playerId: string; count: number } | null
+  // Cards the agent may still write in this room (config.generate.maxPerRoom).
+  generateRemaining: number
 }
 
 export type ServerMsg =

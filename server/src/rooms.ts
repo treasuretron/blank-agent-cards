@@ -2,8 +2,8 @@ import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { baseRules, cardFace, GameConfigSchema, type Card, type CardView, type ClientMsg, type SavedCardMeta, type LearningNote, type LearningStatus, type Rules, type AgentVerdict, ReflectionSchema, type GameAgent, type GameConfig, type GameState, type HistoryEntry, type Phase, type RoomSnapshot, type ServerMsg, type ThreadEntry } from '@cards/shared'
-import { composeCard, normalizeSavedCard } from './cards.ts'
+import { baseRules, cardFace, EXAMPLE_CARDS, GameConfigSchema, type GeneratedCard, type GenerateInput, type Card, type CardView, type ClientMsg, type SavedCardMeta, type LearningNote, type LearningStatus, type Rules, type AgentVerdict, ReflectionSchema, type GameAgent, type GameConfig, type GameState, type HistoryEntry, type Phase, type RoomSnapshot, type ServerMsg, type ThreadEntry } from '@cards/shared'
+import { composeCard, normalizeSavedCard, renderDoodle } from './cards.ts'
 import { Library } from './library.ts'
 import { LearningStore, learningStats, renderReport } from './learning.ts'
 import { interpretPlay, runEngine } from './engineHost.ts'
@@ -16,9 +16,12 @@ type SavedRoom = {
   code: string; config: GameConfig; phase: Phase; seats: Seat[]; cards: Card[];
   state: GameState | null; source: string; version: number; thread: ThreadEntry[];
   history: HistoryEntry[]; pendingCard: string | null; learning?: LearningStatus;
+  // Cards the agent has written for this room so far.
+  generated?: number;
 }
 // `learning` runs reflections and the report in order, off the turn's critical path.
-export type Room = SavedRoom & { peers: Map<string, Peer>; queue: Promise<void>; learningChain: Promise<void> }
+// `generating` is an in-flight card-writing request; a restart simply drops it.
+export type Room = SavedRoom & { peers: Map<string, Peer>; queue: Promise<void>; learningChain: Promise<void>; generating: { playerId: string; count: number } | null }
 const baseSource = await readFile(fileURLToPath(new URL('../../game/engine.mjs', import.meta.url)), 'utf8')
 
 export class Rooms {
@@ -44,7 +47,7 @@ export class Rooms {
       const saved = JSON.parse(await readFile(path.join(this.directory, file), 'utf8')) as SavedRoom
       saved.config = GameConfigSchema.parse(saved.config)
       this.gameAgent(saved.config)
-      const room: Room = { ...saved, peers: new Map(), queue: Promise.resolve(), learningChain: Promise.resolve() }
+      const room: Room = { ...saved, peers: new Map(), queue: Promise.resolve(), learningChain: Promise.resolve(), generating: null }
       this.rooms.set(room.code, room)
       if (room.pendingCard && room.state) {
         this.failedPlay(room, room.pendingCard, 'Server restarted during interpretation; no effects applied.')
@@ -56,7 +59,7 @@ export class Rooms {
   }
 
   async save(room: Room) {
-    const { peers: _peers, queue: _queue, learningChain: _learningChain, ...saved } = room
+    const { peers: _peers, queue: _queue, learningChain: _learningChain, generating: _generating, ...saved } = room
     const filename = path.join(this.directory, `${room.code}.json`)
     await writeFile(`${filename}.tmp`, JSON.stringify(saved), { mode: 0o600 })
     await rename(`${filename}.tmp`, filename)
@@ -92,6 +95,7 @@ export class Rooms {
       agentPending: room.pendingCard !== null, winnerId: room.state?.winnerId ?? null,
       gameCards: room.phase === 'ended' ? room.cards.map(view) : [],
       learning: room.config.mode === 'learning' ? room.learning ?? { notes: 0, report: 'none' } : null,
+      generating: room.generating, generateRemaining: Math.max(0, room.config.generate.maxPerRoom - (room.generated ?? 0)),
       thread: room.thread.map(entry => entry.kind === 'play' ? { ...entry, card: view(room.cards.find(c => c.id === entry.card.id)!) } : entry.kind === 'verdict' ? { ...entry, verdict: { ...entry.verdict, enginePatch: undefined } } : entry),
     }
   }
@@ -143,7 +147,7 @@ export class Rooms {
       let code: string
       do { code = Array.from({ length: 4 }, () => String.fromCharCode(65 + randomInt(26))).join('') } while (this.rooms.has(code))
       const seat = { id: randomUUID(), name: message.name, token: randomBytes(32).toString('base64url') }
-      const room: Room = { code, config, phase: 'authoring', seats: [seat], cards: [], state: null, source: baseSource, version: 1, thread: [], history: [], pendingCard: null, peers: new Map(), queue: Promise.resolve(), learningChain: Promise.resolve() }
+      const room: Room = { code, config, phase: 'authoring', seats: [seat], cards: [], state: null, source: baseSource, version: 1, thread: [], history: [], pendingCard: null, peers: new Map(), queue: Promise.resolve(), learningChain: Promise.resolve(), generating: null }
       this.rooms.set(code, room)
       try { await this.save(room) } catch (error) { this.rooms.delete(code); throw error }
       this.attach(peer, room, seat); return
@@ -176,7 +180,7 @@ export class Rooms {
         const cards = [...new Set(message.cardIds)].map(cardId => room.cards.find(c => c.id === cardId))
         if (cards.some(c => !c)) throw new Error('Unknown card')
         const names: string[] = []
-        for (const card of cards as Card[]) names.push(await this.library.save(card, room.seats.find(s => s.id === card.authorId)?.name ?? 'unknown', room.code))
+        for (const card of cards as Card[]) names.push(await this.library.save(card, card.byAgent ? 'the agent' : room.seats.find(s => s.id === card.authorId)?.name ?? 'unknown', room.code))
         peer.send({ type: 'cardsSaved', names }); return
       }
       if (message.type === 'say') {
@@ -186,6 +190,8 @@ export class Rooms {
         if (room.cards.filter(c => c.authorId === id).length >= room.config.cardsPerPlayer) throw new Error('Card quota reached')
         const png = await composeCard(message.card, room.config.card)
         room.cards.push({ id: randomUUID(), authorId: id, title: message.card.title, text: message.card.text, png })
+      } else if (message.type === 'generateCards') {
+        this.requestCards(room, id, message.count)
       } else if (message.type === 'setMode') {
         if (id !== room.seats[0].id) throw new Error('Only the host can change the mode')
         if (room.phase !== 'authoring') throw new Error('The mode is fixed once the deck is dealt')
@@ -216,6 +222,91 @@ export class Rooms {
     })
     room.queue = operation.catch(() => {})
     await operation
+  }
+
+  // Checks the request, then lets the agent write outside the room queue so chat
+  // and plays carry on. The cards are added through the queue when they arrive.
+  private requestCards(room: Room, id: string, count: number) {
+    const agent = this.gameAgent(room.config)
+    if (!agent.generateCards) throw new Error('This agent cannot write cards')
+    if (room.generating) throw new Error('The agent is already writing cards for this room')
+    if (count > room.config.generate.maxPerRequest) throw new Error(`Ask for at most ${room.config.generate.maxPerRequest} cards at a time`)
+    if (count > room.config.generate.maxPerRoom - (room.generated ?? 0)) throw new Error('The agent has written all the cards this room allows')
+    if (room.phase === 'authoring' && count > room.config.cardsPerPlayer - room.cards.filter(c => c.authorId === id).length) throw new Error('That is more cards than you have left to make')
+    if (room.phase === 'ended' && room.state?.winnerId) throw new Error('The game is over')
+    room.generating = { playerId: id, count }
+    const input: Promise<GenerateInput> = this.library.list().catch(() => []).then(library => ({
+      count,
+      limits: { titleMaxChars: room.config.card.titleMaxChars, maxChars: room.config.card.maxChars },
+      examples: [...EXAMPLE_CARDS, ...library.slice(0, 30).map(({ title, text }) => ({ title, text }))],
+      existing: room.cards.slice(-60).map(({ title, text }) => ({ title, text })),
+      rules: room.state?.rules ?? null,
+      history: room.history.slice(-10).map(({ playerName, card, narration }) => ({ playerName, card, narration })),
+    }))
+    void input
+      .then(input => withTimeout(agent.generateCards!(input), room.config.agent.timeoutMs, 'The agent took too long writing cards'))
+      .then(written => this.composeGenerated(room, id, written, count))
+      .then(cards => this.enqueue(room, () => this.addGenerated(room, id, cards)))
+      .catch(error => {
+        room.generating = null
+        this.broadcast(room)
+        room.peers.get(id)?.send({ type: 'error', message: `The agent couldn't write cards: ${error instanceof Error ? error.message : String(error)}` })
+      })
+  }
+
+  // Keeps cards that fit this room's limits and aren't repeats, then draws them.
+  private async composeGenerated(room: Room, id: string, written: GeneratedCard[], count: number) {
+    const seen = new Set(room.cards.map(c => c.text.trim().toLowerCase()))
+    const { titleMaxChars, maxChars } = room.config.card
+    const cards: Card[] = []
+    for (const card of written) {
+      const title = card.title.trim().slice(0, titleMaxChars).trim(), text = card.text.trim()
+      if (!text || text.length > maxChars || seen.has(text.toLowerCase()) || cards.length >= count) continue
+      seen.add(text.toLowerCase())
+      const png = await composeCard({ title: title || undefined, text, art: renderDoodle(card.doodle, room.config.card) }, room.config.card)
+      cards.push({ id: randomUUID(), authorId: id, title: title || undefined, text, png, byAgent: true })
+    }
+    if (!cards.length) throw new Error('none of its cards fit the rules for a card')
+    return cards
+  }
+
+  private async addGenerated(room: Room, id: string, cards: Card[]) {
+    room.generating = null
+    const name = room.seats.find(s => s.id === id)!.name
+    const say = (text: string) => room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'system', text })
+    if (room.phase === 'authoring') {
+      // The quota may have filled while the agent was writing.
+      cards = cards.slice(0, Math.max(0, room.config.cardsPerPlayer - room.cards.filter(c => c.authorId === id).length))
+      room.cards.push(...cards)
+      if (cards.length) say(`The agent drew ${cards.length} card${cards.length === 1 ? '' : 's'} for ${name}.`)
+    } else if (room.state && !room.state.winnerId) {
+      const state = room.state
+      room.cards.push(...cards)
+      for (const card of cards) state.deck.splice(randomInt(state.deck.length + 1), 0, card.id)
+      // Anyone left empty-handed draws back up, so a game that ran dry can go on.
+      for (const player of state.players) if (!player.hand.length) player.hand.push(...state.deck.splice(0, Math.max(1, state.rules.handSize)))
+      say(`At ${name}'s request the agent wrote ${cards.length} new card${cards.length === 1 ? '' : 's'} and shuffled ${cards.length === 1 ? 'it' : 'them'} into the deck.`)
+      if (room.phase === 'ended') {
+        room.phase = 'play'
+        if (!state.players.find(p => p.id === state.turn.playerId)?.hand.length) {
+          const next = state.players.find(p => p.hand.length)
+          if (next) state.turn = { ...state.turn, playerId: next.id }
+        }
+        state.turn = { ...state.turn, number: state.turn.number + 1, playsThisTurn: 0 }
+        say(`The game is back on. It's ${state.players.find(p => p.id === state.turn.playerId)!.name}'s turn.`)
+      }
+    } else {
+      say(`The agent finished writing cards for ${name}, but the game is already over.`)
+      cards = []
+    }
+    room.generated = (room.generated ?? 0) + cards.length
+    await this.save(room); this.broadcast(room)
+  }
+
+  private enqueue(room: Room, task: () => Promise<void>) {
+    const operation = room.queue.then(task)
+    room.queue = operation.catch(() => {})
+    return operation
   }
 
   private failedPlay(room: Room, cardId: string, error: string) {
@@ -310,7 +401,7 @@ export class Rooms {
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, message = 'Learning step timed out'): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
-  return Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Learning step timed out')), ms) })]).finally(() => clearTimeout(timer))
+  return Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms) })]).finally(() => clearTimeout(timer))
 }

@@ -4,6 +4,7 @@ import type { RoomSnapshot } from "@cards/shared"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect } from "react"
+import { GenerateCards } from "@/components/cards/GenerateCards"
 import { RoomThread } from "@/components/chat/RoomThread"
 import { GameOver } from "@/components/game/GameOver"
 import { Hand } from "@/components/game/Hand"
@@ -72,8 +73,9 @@ function Table({ snap }: { snap: RoomSnapshot }) {
 
       <section className={styles.handArea} aria-label="Your hand">
         <h2 className={styles.handTitle}>
-          Your hand <span className={styles.sub}>{snap.hand.length} cards</span>
+          Your hand <span className={styles.sub}>{snap.hand.length} cards · {snap.deckCount} in the deck</span>
         </h2>
+        {snap.phase === "play" && <GenerateCards snap={snap} label="more cards? the agent can draw" />}
         <Hand
           cards={snap.hand}
           aspect={aspect}

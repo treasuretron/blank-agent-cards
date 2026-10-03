@@ -1,6 +1,7 @@
 import type { Card } from "./card.ts"
 import type { AgentVerdict, Rules } from "./rules.ts"
 import type { GameState } from "./state.ts"
+import type { GeneratedCard, GenerateInput } from "./generate.ts"
 import type { Reflection, ReflectionInput, ReportInput } from "./learning.ts"
 
 export type HistoryEntry = {
@@ -29,4 +30,6 @@ export interface GameAgent {
   reflect?(input: ReflectionInput): Promise<Reflection>
   // Markdown advice for making fast mode faster, from the game's notes.
   report?(input: ReportInput): Promise<string>
+  // Writes new cards on request. The server validates and trims the result.
+  generateCards?(input: GenerateInput): Promise<GeneratedCard[]>
 }
