@@ -1,11 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import path from 'node:path'
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { EXAMPLE_CARDS, GameConfigSchema, type ConfigOverrides, type GameAgent, type GeneratedCard, type GenerateInput, type ServerMsg } from '@cards/shared'
 import { Rooms, type Peer, type Room } from '../src/rooms.ts'
 import { MockAgent } from '../src/agent/mock.ts'
 import { renderDoodle } from '../src/cards.ts'
+import { Library } from '../src/library.ts'
 
 const config = GameConfigSchema.parse(JSON.parse(await readFile(new URL('../../game.config.json', import.meta.url), 'utf8')))
 const canvas = createCanvas(20, 20)
@@ -73,7 +76,7 @@ test('the agent sees the built-in examples, the room\'s cards, and mid-game rule
   await settle(room)
   assert.equal(seen[0].count, 1)
   assert.deepEqual(seen[0].limits, { titleMaxChars: config.card.titleMaxChars, maxChars: config.card.maxChars })
-  assert.deepEqual(seen[0].examples.slice(0, EXAMPLE_CARDS.length).map(e => e.text), EXAMPLE_CARDS.map(e => e.text))
+  assert.deepEqual(seen[0].examples.map(e => e.text), EXAMPLE_CARDS.map(e => e.text))
   assert.deepEqual(seen[0].existing.map(c => c.text), ['a card by Ana'])
   assert.equal(seen[0].rules, null)
   for (let i = 0; i < 2; i++) await rooms.handle(b.connection, { type: 'submitCard', card: { text: `bo ${i}`, art } })
@@ -168,6 +171,43 @@ test('doodles render as black ink on white', async () => {
   }
   assert.equal(ink(blank), 0)
   assert.ok(ink(drawn) > 1000)
+})
+
+test("the agent is shown cards saved on the server, and repeats of them are dropped", async t => {
+  const seen: GenerateInput[] = []
+  const { rooms, room, directory } = await setup(t)
+  // Cards someone saved from an earlier game, the way the game-over screen does.
+  const library = new Library(path.join(directory, 'library'))
+  for (const [title, text] of [['Free cards', 'Free cards'], ['Take One', 'Take a card from the leader']] as const) {
+    await library.save({ id: randomUUID(), authorId: 'earlier', title, text, png: art }, 'earlier player', 'OLD1')
+  }
+  const writerAgent = writer(() => [
+    { title: 'Free cards', text: 'Free cards', doodle: [] },
+    { title: 'Take One', text: 'take a card from the leader', doodle: [] },
+    { title: 'New Idea', text: 'A brand new rule nobody has seen', doodle: [] },
+  ], seen)
+  const rooms2 = new Rooms(config, directory, writerAgent)
+  await rooms2.load()
+  room.peers.set('nobody', { send: () => {} })
+  const p = peer()
+  await rooms2.handle(p.connection, { type: 'createRoom', name: 'Ana', configOverrides: { cardsPerPlayer: 3, handSize: 1, targetScore: 10 } })
+  const room2 = p.connection.room!
+  await rooms2.handle(p.connection, { type: 'generateCards', count: 3 })
+  await settle(room2)
+  assert.deepEqual(seen[0].savedCards.map(c => c.text).sort(), ['Free cards', 'Take a card from the leader'])
+  assert.deepEqual(room2.cards.filter(c => c.byAgent).map(c => c.text), ['A brand new rule nobody has seen'])
+})
+
+test('an upstream failure is reported as a plain message, not a provider dump', async t => {
+  const { rooms, room, a } = await setup(t, Object.assign(new MockAgent(), {
+    generateCards: async () => { throw new Error('Error from provider (Console): Upstream request failed: [invalid_request_error] invalid request') },
+  }))
+  await rooms.handle(a.connection, { type: 'generateCards', count: 1 })
+  await settle(room)
+  const error = a.messages.find(m => m.type === 'error')
+  assert.match(error!.message, /having trouble right now/)
+  assert.doesNotMatch(error!.message, /invalid_request/)
+  assert.equal(room.generating, null)
 })
 
 test('generation deadline cancels the writer, clears pending, ignores late cards and allows retry', async t => {

@@ -20,24 +20,83 @@ export const GeneratedCardSchema = z.object({
 })
 export type GeneratedCard = z.infer<typeof GeneratedCardSchema>
 
-export const GeneratedCardsSchema = z.object({ cards: z.array(GeneratedCardSchema).min(1) })
+// What one card may be: title and rule text, plus a doodle clamped to fit.
+const LenientCard = z.object({ title: z.string().optional(), text: z.string().trim().min(1), doodle: z.unknown().optional() })
 
 export type GenerateInput = {
   count: number
   limits: { titleMaxChars: number; maxChars: number }
-  // Built-in examples first, then cards from this room and the server library.
+  // Built-in examples, cards other people saved on this server, then this
+  // room's own cards.
   examples: { title?: string; text: string }[]
+  savedCards: { title?: string; text: string }[]
   existing: { title?: string; text: string }[]
   // Set mid-game, so new cards can play off what has happened so far.
   rules: Rules | null
   history: { playerName: string; card: { title?: string; text: string }; narration: string }[]
 }
 
-// Seed examples in the spirit of 1000 Blank White Cards
-// (https://en.wikipedia.org/wiki/1000_Blank_White_Cards). The first is quoted
-// in that article; the rest are written for this game in the same style: a
-// title, a stick-figure picture, and a rule that scores, punishes, changes
-// play, or does something nobody planned for.
+// The model's JSON comes back malformed often enough to matter: a stray
+// character, a truncated tail, or the occasional bad doodle. These keep
+// whatever usable cards are in there instead of losing the whole batch.
+
+// Drawings are capped rather than rejected, so an over-long one is trimmed.
+export const MAX_STROKES = 16, MAX_STROKE_POINTS = 80
+
+export function clampDoodle(doodle: unknown): Doodle {
+  if (!Array.isArray(doodle)) return []
+  const strokes: number[][] = []
+  for (const raw of doodle.slice(0, MAX_STROKES)) {
+    if (!Array.isArray(raw)) continue
+    const points = raw.filter(n => typeof n === 'number' && Number.isFinite(n)).slice(0, MAX_STROKE_POINTS).map(n => Math.min(100, Math.max(0, Math.round(n))))
+    const pairs = points.length - (points.length % 2)
+    if (pairs >= 4) strokes.push(points.slice(0, pairs))
+  }
+  return strokes
+}
+
+// Every balanced {...} inside the cards array, so one malformed object doesn't
+// hide the good ones after it. An object that never closes (a cut-off response)
+// is the last casualty, and there is nothing to recover past it.
+function balancedObjects(text: string): string[] {
+  const bracket = text.indexOf('[')
+  const objects: string[] = []
+  let depth = 0, start = -1, inString = false, escaped = false
+  for (let i = bracket + 1; i < text.length; i++) {
+    const character = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') inString = true
+    else if (character === '{') { if (depth++ === 0) start = i }
+    else if (character === '}') { if (depth > 0 && --depth === 0) objects.push(text.slice(start, i + 1)) }
+    else if (character === ']' && depth === 0) break
+  }
+  return objects
+}
+
+export function parseGeneratedCards(text: string): GeneratedCard[] {
+  let candidates: unknown[] = []
+  try {
+    const parsed = JSON.parse(text.replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, '$1').trim())
+    candidates = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.cards) ? parsed.cards : []
+  } catch {
+    candidates = balancedObjects(text)
+  }
+  const cards: GeneratedCard[] = []
+  for (const raw of candidates) {
+    // Salvaged candidates are still text.
+    let candidate = raw
+    if (typeof raw === 'string') { try { candidate = JSON.parse(raw) } catch { continue } }
+    const card = LenientCard.safeParse(candidate)
+    if (card.success) cards.push({ title: card.data.title ?? '', text: card.data.text, doodle: clampDoodle(card.data.doodle) })
+  }
+  return cards
+}
+
 export const EXAMPLE_CARDS: { title: string; text: string; doodle?: Doodle }[] = [
   { title: "Zinc", text: "Eat This!... In a few minutes, the ZINC will be entering your system." },
   { title: "Free Points", text: "+15 points. No reason.", doodle: [[30, 50, 70, 50], [50, 30, 50, 70]] },

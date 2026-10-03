@@ -61,7 +61,7 @@ test('SDK HTTP shape includes image, explicit model, context and deny permission
   assert.equal(requests.filter(r => /^\/session\/session-\d+$/.test(r.path)).length, 2)
 })
 
-const generateInput: GenerateInput = { count: 2, limits: { titleMaxChars: 24, maxChars: 300 }, examples: EXAMPLE_CARDS, existing: [], rules: null, history: [] }
+const generateInput: GenerateInput = { count: 2, limits: { titleMaxChars: 24, maxChars: 300 }, examples: EXAMPLE_CARDS, savedCards: [], existing: [], rules: null, history: [] }
 const generated = { title: 'Lunch', text: 'Gain 5 points for your imaginary sandwich.', doodle: [[10, 10, 20, 20]] }
 
 test('card writing retries malformed or maximum-steps output in a fresh session, without images', async t => {
@@ -76,8 +76,14 @@ test('card writing retries malformed or maximum-steps output in a fresh session,
 })
 
 test('card writing keeps valid siblings, bounds count, and does not retry partial success', async t => {
-  const { agent, requests } = await mock(t, { text: JSON.stringify({ cards: [{ ...generated, doodle: [[1, 2, 3, 4, 5]] }, generated, generated] }) })
-  assert.deepEqual(await agent.generateCards(generateInput), [generated])
+  const odd = { title: 'Odd', text: 'A card whose doodle ends mid-line.', doodle: [[1, 2, 3, 4, 5]] }
+  const second = { title: 'Two', text: 'Draw 2 cards.', doodle: [] }
+  const third = { title: 'Three', text: 'Reverse play.', doodle: [] }
+  const { agent, requests } = await mock(t, { text: JSON.stringify({ cards: [odd, second, third] }) })
+  const cards = await agent.generateCards(generateInput)
+  assert.deepEqual(cards.map(c => c.title), ['Odd', 'Two'])
+  // A dodgy drawing is trimmed rather than costing the card its place in the batch.
+  assert.deepEqual(cards[0].doodle, [[1, 2, 3, 4]])
   assert.equal(requests.filter(r => r.path.endsWith('/message')).length, 1)
 })
 

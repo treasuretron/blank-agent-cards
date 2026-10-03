@@ -35,7 +35,7 @@ export class MockAgent implements GameAgent {
   // Stand-in card writer: cards that interpret() above understands, each with a
   // random zigzag doodle, skipping any text already in the room.
   async generateCards(input: GenerateInput): Promise<GeneratedCard[]> {
-    const taken = new Set(input.existing.map(c => c.text.toLowerCase()))
+    const taken = new Set([...input.existing, ...input.savedCards].map(c => c.text.toLowerCase()))
     const cards: GeneratedCard[] = []
     for (let i = 0; cards.length < input.count; i++) {
       const [title, base] = mockCards[i % mockCards.length]

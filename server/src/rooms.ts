@@ -246,31 +246,40 @@ export class Rooms {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Error('The agent took too long writing cards')), room.config.agent.timeoutMs)
     const cancelled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }))
-    const input: Promise<GenerateInput> = this.library.list().catch(() => []).then(library => ({
-      count,
-      limits: { titleMaxChars: room.config.card.titleMaxChars, maxChars: room.config.card.maxChars },
-      examples: [...EXAMPLE_CARDS, ...library.slice(0, 30).map(({ title, text }) => ({ title, text }))],
-      existing: room.cards.slice(-60).map(({ title, text }) => ({ title, text })),
-      rules: room.state?.rules ?? null,
-      history: room.history.slice(-10).map(({ playerName, card, narration }) => ({ playerName, card, narration })),
+    const context: Promise<{ input: GenerateInput; saved: { text: string }[] }> = this.library.list().catch(() => []).then(library => ({
+      input: {
+        count,
+        limits: { titleMaxChars: room.config.card.titleMaxChars, maxChars: room.config.card.maxChars },
+        examples: EXAMPLE_CARDS,
+        savedCards: library.slice(0, 30).map(({ title, text }) => ({ title, text })),
+        existing: room.cards.slice(-60).map(({ title, text }) => ({ title, text })),
+        rules: room.state?.rules ?? null,
+        history: room.history.slice(-10).map(({ playerName, card, narration }) => ({ playerName, card, narration })),
+      },
+      saved: library.map(({ text }) => ({ text })),
     }))
-    void Promise.race([input.then(input => {
+    void Promise.race([context.then(({ input, saved }) => {
       controller.signal.throwIfAborted()
-      return agent.generateCards!(input, controller.signal)
+      return agent.generateCards!(input, controller.signal).then(written => this.composeGenerated(room, id, written, count, saved))
     }), cancelled])
-      .then(written => this.composeGenerated(room, id, written, count))
       .then(cards => this.enqueue(room, () => this.addGenerated(room, id, cards)))
       .catch(error => {
         room.generating = null
         this.broadcast(room)
-        room.peers.get(id)?.send({ type: 'error', message: `The agent couldn't write cards: ${error instanceof Error ? error.message : String(error)}` })
+        const detail = error instanceof Error ? error.message : String(error)
+        // Upstream model errors reach players verbatim; they mean nothing here.
+        const message = /invalid_request|upstream|overloaded|rate.?limit|APIError|statusCode/i.test(detail)
+          ? 'The agent is having trouble right now. Try again in a moment.'
+          : `The agent couldn't write cards: ${detail}`
+        room.peers.get(id)?.send({ type: 'error', message })
       })
       .finally(() => clearTimeout(timer))
   }
 
-  // Keeps cards that fit this room's limits and aren't repeats, then draws them.
-  private async composeGenerated(room: Room, id: string, written: GeneratedCard[], count: number) {
-    const seen = new Set(room.cards.map(c => c.text.trim().toLowerCase()))
+  // Keeps cards that fit this room's limits and aren't repeats of this room's
+  // cards or the server's saved ones, then draws them.
+  private async composeGenerated(room: Room, id: string, written: GeneratedCard[], count: number, saved: { text: string }[]) {
+    const seen = new Set([...room.cards.map(c => c.text), ...saved.map(s => s.text)].map(c => c.trim().toLowerCase()))
     const { titleMaxChars, maxChars } = room.config.card
     const cards: Card[] = []
     for (const card of written) {
