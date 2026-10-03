@@ -241,6 +241,9 @@ export class Rooms {
     if (room.phase === 'authoring' && count > room.config.cardsPerPlayer - room.cards.filter(c => c.authorId === id).length) throw new Error('That is more cards than you have left to make')
     if (room.phase === 'ended' && (room.state?.winnerId || room.endedBy)) throw new Error('The game is over')
     room.generating = { playerId: id, count }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new Error('The agent took too long writing cards')), room.config.agent.timeoutMs)
+    const cancelled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }))
     const context: Promise<{ input: GenerateInput; saved: { text: string }[] }> = this.library.list().catch(() => []).then(library => ({
       input: {
         count,
@@ -253,8 +256,10 @@ export class Rooms {
       },
       saved: library.map(({ text }) => ({ text })),
     }))
-    void context
-      .then(({ input, saved }) => this.writeCards(agent, input, room.config.agent.timeoutMs).then(written => this.composeGenerated(room, id, written, count, saved)))
+    void Promise.race([context.then(({ input, saved }) => {
+      controller.signal.throwIfAborted()
+      return agent.generateCards!(input, controller.signal).then(written => this.composeGenerated(room, id, written, count, saved))
+    }), cancelled])
       .then(cards => this.enqueue(room, () => this.addGenerated(room, id, cards)))
       .catch(error => {
         room.generating = null
@@ -266,18 +271,7 @@ export class Rooms {
           : `The agent couldn't write cards: ${detail}`
         room.peers.get(id)?.send({ type: 'error', message })
       })
-  }
-
-  // One retry with a slimmer context, because a batch is worth keeping when the
-  // model trips over the history or a long prompt.
-  private async writeCards(agent: GameAgent, input: GenerateInput, timeoutMs: number) {
-    const attempt = async (context: GenerateInput) => withTimeout(agent.generateCards!(context), timeoutMs, 'The agent took too long writing cards')
-    try {
-      const written = await attempt(input)
-      if (written.length) return written
-    } catch { /* Fall through to the slimmer attempt. */ }
-    const slimmer: GenerateInput = { ...input, existing: input.existing.slice(-20), history: [], count: Math.min(2, input.count) }
-    return attempt(slimmer)
+      .finally(() => clearTimeout(timer))
   }
 
   // Keeps cards that fit this room's limits and aren't repeats of this room's
@@ -298,6 +292,7 @@ export class Rooms {
   }
 
   private async addGenerated(room: Room, id: string, cards: Card[]) {
+    const requested = room.generating?.count ?? cards.length
     room.generating = null
     const name = room.seats.find(s => s.id === id)!.name
     const say = (text: string) => room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'system', text })
@@ -327,6 +322,7 @@ export class Rooms {
       cards = []
     }
     room.generated = (room.generated ?? 0) + cards.length
+    if (cards.length && cards.length < requested) say(`Only ${cards.length} of ${requested} requested cards could be added. You can ask for the rest again.`)
     await this.save(room); this.broadcast(room)
   }
 

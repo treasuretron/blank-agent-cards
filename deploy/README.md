@@ -194,6 +194,74 @@ model/launcher requires restarting `cards-game`. Config is not hot-reloaded.
 
 ## Verification And Gaps
 
+### Integrated Preview Release (2026-10-03)
+
+The M7 source workspace now preserves these live timeout fixes and includes the
+card-writing/end-game integration. The larger selected-hand preview was applied
+without replacing this dirty live checkout, then published with the supported
+webpack snapshot build. Public login, ten protected assets, WSS and CSRF passed.
+The source workspace's public service check generated four Space Bunny cards in
+39.7 seconds and checked PNG protection/persistence, two-player join/deal,
+end-game and seat resume. Its cleanup waited for idle inference, removed only
+the verification room, and preserved all three other room files byte-for-byte.
+Post-cleanup health and public login checks passed. The URL, password, provider
+and loaded agent configuration are unchanged. No infrastructure secrets or room
+state were copied into source. Live-only edits remain uncommitted here; preserve
+them before any future snapshot replacement.
+
+### Card-Writing Fix (2026-10-03)
+
+The running source is the detached deployment checkout at `/home/ubuntu/cards-live`
+(mounted read-only at `/opt/cards`), not the concurrently edited M7 checkout.
+The card-writing fixes are uncommitted in that deployed checkout. Replacing it
+with a fresh Git snapshot will discard them unless they are integrated first.
+
+OpenCode 1.18.18 injects its maximum-steps summary instruction when
+`step >= agent.steps`. With `card-referee.steps: 1`, that happened on the very
+first inference, conflicting with the required JSON. Live card-writing probes
+reproduced non-JSON "Maximum steps" responses. The cap is now 2; tools and all
+permissions remain denied, and normal requests finish after one inference.
+The exact reported 90-second stall was not reproduced; provider latency also
+varies substantially, and the original failed request was not retained.
+
+Card writing keeps the existing 90-second total deadline, passes cancellation
+from rooms through the adapter to OpenCode, and aborts/deletes throwaway sessions
+with independent two-second cleanup bounds. One malformed-output retry shares
+that same deadline, not a new 90-second wait. Provider errors are not blindly
+retried. Prompts request small doodles and bounded card counts/text; valid cards
+are retained when a sibling is invalid. The existing pending display clears on
+failure, late results cannot add cards, and partial additions are reported in the
+room thread so players can request the remainder.
+
+Validation: 73 server tests, 7 shared tests, 21 web tests and the gateway test pass;
+shared/server typechecks and the production webpack build pass. Public WSS
+verification requested four cards from the real Space Bunny model: all four
+arrived in 51.4 seconds, pending state was observed, cards/count were persisted,
+and all four protected PNGs returned 200. A direct adapter probe using existing
+room context returned four in 60.7 seconds. Public login/assets/WS/CSRF checks
+pass (an initial simultaneous login check hit the expected 429 throttle).
+A real caller-cancellation probe stopped in 2.1 seconds and confirmed its
+throwaway OpenCode session had been deleted.
+
+The frontend was rebuilt from the deployed snapshot, never the concurrent web
+checkout. Agent/game restarts applied the fix; game restart waited for active
+inference to drain. Only the verification room was removed; all three other
+room files were byte-identical across cleanup/restart. No secrets were printed,
+no branding changed, and no commits were made. Free-provider availability and
+latency remain external constraints; the deadline is deliberately not extended.
+
+Private smoke checks (do not run concurrently with a demo inference):
+
+```sh
+sudo node --import tsx deploy/generate-verify.ts 4
+sudo node deploy/generate-service-verify.mjs
+```
+
+The public service check creates a room and prints only its code and verification
+metrics, never credentials, seat tokens or card contents. Remove only that test
+room while the game service is stopped, after ensuring inference is idle; preserve
+all other persisted rooms.
+
 Current live verification passes application HTTP/WS authentication, secure cookie
 attributes/signatures/expiry, foreign/missing Origin rejection, logout, login
 throttling, config/flood/seat limits, protected images, two-player real Space Bunny

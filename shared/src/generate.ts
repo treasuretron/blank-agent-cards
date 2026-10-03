@@ -81,7 +81,7 @@ function balancedObjects(text: string): string[] {
 export function parseGeneratedCards(text: string): GeneratedCard[] {
   let candidates: unknown[] = []
   try {
-    const parsed = JSON.parse(text)
+    const parsed = JSON.parse(text.replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, '$1').trim())
     candidates = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.cards) ? parsed.cards : []
   } catch {
     candidates = balancedObjects(text)

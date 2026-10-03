@@ -29,7 +29,12 @@ export function Hand({
       {cards.map((c) => {
         const isSel = selected === c.id
         return (
-          <div key={c.id} className={`${styles.handCard} ${isSel ? styles.selected : ""}`}>
+          <div
+            key={c.id}
+            className={`${styles.handCard} ${isSel ? styles.selected : ""}`}
+            // Keep the enlarged card in view when it's near the edge of a scrolled hand.
+            onTransitionEnd={(e) => isSel && e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
+          >
             <button
               type="button"
               aria-pressed={isSel}

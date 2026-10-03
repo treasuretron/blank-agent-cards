@@ -102,6 +102,7 @@ test('cards that are too long or repeat existing ones are dropped; none left is 
   await rooms.handle(a.connection, { type: 'generateCards', count: 2 })
   await settle(room)
   assert.equal(room.cards.length, 1)
+  assert.match(JSON.stringify(room.thread), /Only 1 of 2 requested cards/)
   assert.equal(room.cards[0].title, 'A title that is far too long to fit on a card'.slice(0, config.card.titleMaxChars).trim())
   batch = [{ title: 'Long', text: long, doodle: [] }]
   a.messages.length = 0
@@ -173,51 +174,28 @@ test('doodles render as black ink on white', async () => {
 })
 
 test("the agent is shown cards saved on the server, and repeats of them are dropped", async t => {
-  const { rooms, room, a, directory } = await setup(t)
+  const seen: GenerateInput[] = []
+  const { rooms, room, directory } = await setup(t)
+  // Cards someone saved from an earlier game, the way the game-over screen does.
   const library = new Library(path.join(directory, 'library'))
   for (const [title, text] of [['Free cards', 'Free cards'], ['Take One', 'Take a card from the leader']] as const) {
     await library.save({ id: randomUUID(), authorId: 'earlier', title, text, png: art }, 'earlier player', 'OLD1')
   }
-  const seen: GenerateInput[] = []
-  const agent = writer(input => [
+  const writerAgent = writer(() => [
     { title: 'Free cards', text: 'Free cards', doodle: [] },
     { title: 'Take One', text: 'take a card from the leader', doodle: [] },
     { title: 'New Idea', text: 'A brand new rule nobody has seen', doodle: [] },
   ], seen)
-  const fresh = new Rooms(config, directory, agent)
-  await fresh.load()
+  const rooms2 = new Rooms(config, directory, writerAgent)
+  await rooms2.load()
+  room.peers.set('nobody', { send: () => {} })
   const p = peer()
-  await fresh.handle(p.connection, { type: 'createRoom', name: 'Ana', configOverrides: { cardsPerPlayer: 3, handSize: 1, targetScore: 10 } })
-  const freshRoom = p.connection.room!
-  freshRoom.peers.set(p.connection.playerId!, p.connection)
-  await fresh.handle(p.connection, { type: 'generateCards', count: 3 })
-  await settle(freshRoom)
+  await rooms2.handle(p.connection, { type: 'createRoom', name: 'Ana', configOverrides: { cardsPerPlayer: 3, handSize: 1, targetScore: 10 } })
+  const room2 = p.connection.room!
+  await rooms2.handle(p.connection, { type: 'generateCards', count: 3 })
+  await settle(room2)
   assert.deepEqual(seen[0].savedCards.map(c => c.text).sort(), ['Free cards', 'Take a card from the leader'])
-  const written = freshRoom.cards.filter(c => c.byAgent)
-  assert.deepEqual(written.map(c => c.text), ['A brand new rule nobody has seen'])
-  void rooms; void room; void a
-})
-
-test('a failed attempt is retried once with a slimmer context', async t => {
-  const seen: GenerateInput[] = []
-  let calls = 0
-  const flaky = Object.assign(new MockAgent(), {
-    generateCards: async (input: GenerateInput) => {
-      calls++; seen.push(input)
-      if (calls === 1) throw new Error('Upstream request failed: [invalid_request_error] invalid request')
-      return [{ title: 'Second Try', text: 'On the retry, this', doodle: [] }]
-    },
-  })
-  const { rooms, room, a } = await setup(t, flaky, { cardsPerPlayer: 30, handSize: 1, targetScore: 10 })
-  for (let i = 0; i < 25; i++) await rooms.handle(a.connection, { type: 'submitCard', card: { title: `Card ${i}`, text: `card number ${i}`, art } })
-  await rooms.handle(a.connection, { type: 'generateCards', count: 2 })
-  await settle(room)
-  assert.equal(calls, 2)
-  assert.equal(seen[0].existing.length, 25)
-  assert.equal(seen[1].existing.length, 20)
-  assert.deepEqual(seen[1].history, [])
-  assert.equal(seen[1].count, 2)
-  assert.deepEqual(room.cards.filter(c => c.byAgent).map(c => c.text), ['On the retry, this'])
+  assert.deepEqual(room2.cards.filter(c => c.byAgent).map(c => c.text), ['A brand new rule nobody has seen'])
 })
 
 test('an upstream failure is reported as a plain message, not a provider dump', async t => {
@@ -230,4 +208,30 @@ test('an upstream failure is reported as a plain message, not a provider dump', 
   assert.match(error!.message, /having trouble right now/)
   assert.doesNotMatch(error!.message, /invalid_request/)
   assert.equal(room.generating, null)
+})
+
+test('generation deadline cancels the writer, clears pending, ignores late cards and allows retry', async t => {
+  let signal: AbortSignal | undefined
+  let finish!: (cards: GeneratedCard[]) => void
+  let calls = 0
+  const agent = Object.assign(new MockAgent(), { generateCards: async (_input: GenerateInput, cancellation?: AbortSignal) => {
+    calls++
+    signal = cancellation
+    if (calls === 1) return new Promise<GeneratedCard[]>(resolve => { finish = resolve })
+    return [{ title: 'Retry', text: 'retry works', doodle: [] }]
+  } })
+  const { rooms, room, a } = await setup(t, agent)
+  room.config.agent.timeoutMs = 30
+  await rooms.handle(a.connection, { type: 'generateCards', count: 1 })
+  await settle(room)
+  assert.equal(signal?.aborted, true)
+  assert.equal(room.generating, null)
+  assert.equal(room.cards.length, 0)
+  assert.ok(a.messages.some(m => m.type === 'error' && /took too long/.test(m.message)))
+  await rooms.handle(a.connection, { type: 'generateCards', count: 1 })
+  await settle(room)
+  finish([{ title: 'Late', text: 'must not arrive', doodle: [] }])
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(room.cards.map(c => c.text), ['retry works'])
+  assert.equal(room.generated, 1)
 })
