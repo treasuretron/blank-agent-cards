@@ -10,6 +10,8 @@
 .small { width: 140px; }
 .medium { width: 170px; }
 .large { width: 220px; }
+/* Popped-up size: fit the tallest viewport we can while keeping the card ratio. */
+.zoom { height: min(74dvh, 620px); width: auto; max-width: 92vw; box-shadow: 8px 8px 0 var(--ink); }
 .face img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .fallback { padding: 10px; font-size: 0.85rem; overflow: hidden; height: 100%; }
 .slot {
@@ -20,6 +22,34 @@
   color: #999;
 }
 .tile button { padding: 2px 10px; font-size: 0.9rem; }
+
+/* Click-a-card-to-enlarge: a trigger is just a bare card button, the layer is
+   a full-screen scrim holding the card above everything else. */
+.zoomTrigger { padding: 0; border: none; box-shadow: none; background: none; border-radius: var(--radius); }
+.zoomTrigger, .zoomTrigger[aria-pressed="true"] { background: none; color: inherit; }
+.zoomTrigger:active:not(:disabled) { transform: none; box-shadow: none; }
+.zoomLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  cursor: zoom-out;
+  animation: zoomIn 120ms ease-out;
+}
+.zoomLayer:focus { outline: none; }
+@keyframes zoomIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.zoomHint { margin: 0; color: var(--muted); font-size: 0.9rem; }
+@media (prefers-reduced-motion: reduce) {
+  .zoomLayer { animation: none; }
+}
 
 .preview {
   border: var(--line);

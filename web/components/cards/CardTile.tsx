@@ -15,7 +15,7 @@ export function CardTile({
 }: {
   card: Pick<CardView, "title" | "text" | "imageUrl">
   aspect: string
-  size?: "small" | "medium" | "large"
+  size?: "small" | "medium" | "large" | "zoom"
   children?: ReactNode
 }) {
   const { imageUrl } = useRoom()

@@ -11,8 +11,10 @@ import {
   type TextMessagePartComponent,
 } from "@assistant-ui/react"
 import type { RoomSnapshot } from "@cards/shared"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { CardTile } from "@/components/cards/CardTile"
+import { CardZoom } from "@/components/cards/CardZoom"
+import cardStyles from "@/components/cards/cards.module.css"
 import { useRoom } from "@/lib/room"
 import { toMessages, type CardPartData, type PendingPartData, type RoomMessage, type RoomMessageCustom, type VerdictPartData } from "@/lib/thread"
 import styles from "./chat.module.css"
@@ -104,9 +106,18 @@ export function RoomThread({ snap, aspect }: { snap: RoomSnapshot; aspect: strin
 const NarrationText: TextMessagePartComponent = ({ text }) => <p className={styles.text}>{text}</p>
 
 function PlayedCard({ card, aspect }: CardPartData & { aspect: string }) {
+  const [zoom, setZoom] = useState(false)
   return (
     <div className={styles.reveal}>
-      <CardTile card={card} aspect={aspect} size="large" />
+      <button
+        type="button"
+        className={cardStyles.zoomTrigger}
+        onClick={() => setZoom(true)}
+        aria-label={`${card.title ?? "Untitled"}: ${card.text} — enlarge`}
+      >
+        <CardTile card={card} aspect={aspect} size="large" />
+      </button>
+      {zoom && <CardZoom card={card} aspect={aspect} onClose={() => setZoom(false)} />}
     </div>
   )
 }
