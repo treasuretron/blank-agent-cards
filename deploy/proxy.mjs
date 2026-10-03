@@ -6,7 +6,8 @@ import { promisify } from 'node:util'
 
 const auth = JSON.parse(await readFile(process.env.CARDS_GATEWAY_AUTH ?? `${process.env.CREDENTIALS_DIRECTORY}/gateway.json`, 'utf8'))
 if (!/^[a-f0-9]{64}$/.test(auth.hash) || !/^[a-f0-9]{64}$/.test(auth.sessionKey) || !/^[a-f0-9]{32}$/.test(auth.salt)) throw new Error('Invalid gateway credentials')
-const origins = new Set(['https://c8a3daedfe446a035a7cf3b0925a707f--8080.coshell.ai', 'http://127.0.0.1:8080', 'http://localhost:8080'])
+// Keep canonical origins independent of untrusted Host/X-Forwarded-* headers.
+const origins = new Set(['https://blank-agent-cards-c8a3daed.style.dev', 'https://c8a3daedfe446a035a7cf3b0925a707f--8080.coshell.ai', 'http://127.0.0.1:8080', 'http://localhost:8080'])
 const cookieName = '__Host-cards_session'
 const duration = 12 * 60 * 60
 const sign = value => createHmac('sha256', auth.sessionKey).update(value).digest('base64url')
@@ -19,14 +20,20 @@ function authenticated(req) {
   const expected = sign(`${expires}.${nonce}`)
   return timingSafeEqual(Buffer.from(signature), Buffer.from(expected)) && Number(expires) > Date.now() / 1000 && Number(expires) <= Date.now() / 1000 + duration ? Number(expires) : 0
 }
-const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>1000 Black Agent Cards | Enter</title><style>body{background:#f4f1e8;color:#181818;font:18px Georgia,serif;display:grid;place-items:center;min-height:90vh;margin:0}main{max-width:380px;padding:30px}h1{font-size:42px;line-height:1}input,button{box-sizing:border-box;width:100%;font:inherit;padding:14px;border:2px solid #181818;margin:8px 0}button{background:#181818;color:white;cursor:pointer}small{display:block;line-height:1.5}</style><main><h1>1000 Black<br>Agent Cards</h1><p>A private table for trusted friends.</p><form action="/login" method="post"><label for="password">Table password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128" autofocus><button>Enter the game</button></form><small>Space Bunny interprets your cards. Generated code remains experimental; the password is not a sandbox.</small></main></html>`
+const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>1000 blank agent cards</title><style>body{background:#f4f1e8;color:#181818;font:18px Georgia,serif;display:grid;place-items:center;min-height:90vh;margin:0}main{max-width:380px;padding:30px}h1{font-size:42px;line-height:1}input,button{box-sizing:border-box;width:100%;font:inherit;padding:14px;border:2px solid #181818;margin:8px 0}button{background:#181818;color:white;cursor:pointer}small{display:block;line-height:1.5}</style><main><h1>1000 blank agent cards</h1><p>A private table for trusted friends.</p><form action="/login" method="post"><label for="password">Table password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128" autofocus><button>Enter the game</button></form><small>Space Bunny interprets your cards. Generated code remains experimental; the password is not a sandbox.</small></main></html>`
 let attempts = 0, windowStart = Date.now(), hashing = false
+const pageHeaders = {
+  'content-type': 'text/html; charset=utf-8',
+  // no-referrer makes browser form navigations send Origin: null.
+  'referrer-policy': 'same-origin',
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+}
 function respond(res, status, body, headers = {}) {
   res.writeHead(status, { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', ...headers }); res.end(body)
 }
 
 // Only these fixed upstreams are reachable. In particular there is no agent route.
-const server = createServer(async (req, res) => {
+export const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname
   if (pathname === '/login' && req.method === 'POST') {
     if (!origins.has(req.headers.origin)) { respond(res, 403, 'Origin rejected'); return }
@@ -40,7 +47,7 @@ const server = createServer(async (req, res) => {
       const password = new URLSearchParams(body).get('password') ?? ''
       if (password.length > 128) { respond(res, 400, 'Invalid login'); return }
       const hash = await promisify(scrypt)(password, auth.salt, 32)
-      if (!timingSafeEqual(hash, Buffer.from(auth.hash, 'hex'))) { respond(res, 401, page, { 'content-type': 'text/html; charset=utf-8' }); return }
+      if (!timingSafeEqual(hash, Buffer.from(auth.hash, 'hex'))) { respond(res, 401, page, pageHeaders); return }
       const value = `${Math.floor(Date.now() / 1000) + duration}.${randomBytes(16).toString('base64url')}`
       respond(res, 303, '', { location: '/', 'set-cookie': `${cookieName}=${value}.${sign(value)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${duration}` })
     } catch { if (!res.headersSent) respond(res, 400, 'Invalid login') }
@@ -52,7 +59,7 @@ const server = createServer(async (req, res) => {
     respond(res, 303, '', { location: '/login', 'set-cookie': `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0` }); return
   }
   if (!authenticated(req)) {
-    if (req.method === 'GET' && (pathname === '/' || pathname === '/login')) respond(res, 200, page, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" })
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/login')) respond(res, 200, page, pageHeaders)
     else respond(res, 401, 'Table password required')
     return
   }
@@ -81,4 +88,4 @@ server.on('upgrade', (req, socket, head) => {
 })
 server.requestTimeout = 10000
 server.headersTimeout = 10000
-server.listen(8080, '127.0.0.1')
+server.listen(Number(process.env.CARDS_GATEWAY_PORT ?? 8080), process.env.CARDS_GATEWAY_HOST ?? '127.0.0.1')

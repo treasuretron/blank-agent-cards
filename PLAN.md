@@ -1,4 +1,4 @@
-# 1000 Blank Agent Cards — Plan
+# 1000 blank agent cards — Plan
 
 A multiplayer, chat-room twist on [1000 Blank White Cards](https://en.wikipedia.org/wiki/1000_Blank_White_Cards).
 Players draw black-and-white cards, the deck decides the game, and a central AI agent
