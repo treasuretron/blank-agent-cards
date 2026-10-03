@@ -17,13 +17,13 @@ const input: AgentInput = {
 const verdict = { narration: 'Ten points!', effects: [{ kind: 'score', amount: 10 }], rulesPatch: {}, enginePatch: 'full source' }
 
 async function mock(t: { after(fn: () => Promise<void>): void }, options: { text?: string; error?: string; delay?: number; image?: boolean; connected?: boolean; status?: number; wrongSession?: boolean; tool?: boolean } = {}) {
-  const requests: { path: string; body: any }[] = []
+  const requests: { path: string; body: any; authorization?: string }[] = []
   let count = 0
   const server = createServer(async (req, res) => {
     let bytes = ''
     for await (const chunk of req) bytes += chunk
     const path = req.url!.split('?')[0]
-    requests.push({ path, body: bytes ? JSON.parse(bytes) : undefined })
+    requests.push({ path, body: bytes ? JSON.parse(bytes) : undefined, authorization: req.headers.authorization })
     res.setHeader('Content-Type', 'application/json')
     if (path === '/provider') return res.end(JSON.stringify({ connected: options.connected === false ? [] : ['test'], all: [{ id: 'test', models: { vision: { capabilities: { input: { image: options.image !== false } } } } }] }))
     if (path === '/session') return res.end(JSON.stringify({ id: `session-${++count}` }))
@@ -59,6 +59,20 @@ test('SDK HTTP shape includes image, explicit model, context and deny permission
   assert.deepEqual(requests.find(r => r.path === '/session')!.body.permission, [{ permission: '*', pattern: '*', action: 'deny' }])
   assert.equal(requests.filter(r => r.path.endsWith('/abort')).length, 2)
   assert.equal(requests.filter(r => /^\/session\/session-\d+$/.test(r.path)).length, 2)
+})
+
+test('private runtime password authenticates provider, prompt and cleanup requests', async t => {
+  const old = process.env.CARDS_AGENT_PASSWORD
+  process.env.CARDS_AGENT_PASSWORD = 'test-only-password'
+  try {
+    const { agent, requests } = await mock(t)
+    await agent.interpret(input)
+    assert.ok(requests.length >= 5)
+    assert.ok(requests.every(r => r.authorization === `Basic ${Buffer.from('cards-game:test-only-password').toString('base64')}`))
+  } finally {
+    if (old === undefined) delete process.env.CARDS_AGENT_PASSWORD
+    else process.env.CARDS_AGENT_PASSWORD = old
+  }
 })
 
 for (const text of ['not JSON', '```json\n{}\n```', '{"narration":"ok"}', '{"narration":"","effects":[],"rulesPatch":{}}', '{"narration":"ok","effects":{},"rulesPatch":{}}', '{"narration":"ok","effects":[],"rulesPatch":{},"enginePatch":3}']) {

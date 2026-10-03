@@ -6,11 +6,12 @@ Requires=opt-cards.mount
 After=opt-cards.mount
 
 [Service]
-User=cards-web
-Group=cards-web
+User=cards-preview
+Group=cards-preview
 WorkingDirectory=/opt/cards
 ExecStart=/usr/local/bin/node deploy/proxy.mjs
 LoadCredential=gateway.json:/etc/cards/gateway.json
+Environment=CARDS_GATEWAY_HOST=0.0.0.0
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

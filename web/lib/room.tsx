@@ -31,6 +31,7 @@ const Ctx = createContext<RoomContext | null>(null)
 
 export function serverUrl(): string {
   const configured = process.env.NEXT_PUBLIC_SERVER_URL
+  if (configured === "same-origin") return window.location.origin
   if (configured) return configured.replace(/\/$/, "")
   const port = process.env.NEXT_PUBLIC_SERVER_PORT ?? "8787"
   return `${window.location.protocol}//${window.location.hostname}:${port}`

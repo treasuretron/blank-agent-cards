@@ -1,24 +1,63 @@
-# M5 Deployment
+# Trusted-Friends Deployment
+
+Updated 2026-10-03: the gateway now has an application password and new rooms use
+real `opencode/space-bunny-free`. This is an explicitly authorized private,
+trusted-friends beta. A password reduces access; it does **not** make generated
+engine code a secure sandbox. Do not invite adversarial users or expose the agent.
 
 ## Current VM
 
 This deploy reuses the existing hackathon-drive VM. Node 24.21.0, system systemd,
 sudo, and user lingering are available. Coshell owns localhost 4096 and its existing
 tunnel; neither that service nor its credentials were changed. No VM was created,
-no credential files were read/copied, no keys rotated, and no commits made.
+no infrastructure credentials were read/copied, no keys rotated, and no commits made.
 
-Preview: https://c8a3daedfe446a035a7cf3b0925a707f--8080.coshell.ai/
+Public game: https://blank-agent-cards-c8a3daed.style.dev/
 
-The edge returns **401 without Coshell authentication**. Open this in the existing
-Coshell browser preview on port 8080 or an authenticated browser. An anonymously
-public URL is not enabled or verified. This is a protected friends/demo deployment,
-not production-grade public hosting. No tunnel secrets are needed by these scripts.
+Players enter the existing table password, then create or join a room. No Coshell
+login is needed. Freestyle supplies DNS and its wildcard HTTPS certificate for
+this free, single-label `style.dev` hostname; no custom-domain ownership is assumed.
+
+The authorized Freestyle CLI login is scoped to Trav's Team
+(`cd49dbed-0c01-472a-9c74-5f89c729f0ca`). The existing `hackathon-drive` VM is
+`vm-6a42b1427fa04e31b3e391db31e71f11` (slug `coshell-54278e5651`). Public HTTP TLS
+rule `tls-13698d1d180244fcafc69a2fb2340e50` targets **only port 8080**:
+
+```sh
+npx freestyle@latest tls get tls-13698d1d180244fcafc69a2fb2340e50
+# Original creation command; do not recreate an existing rule:
+npx freestyle@latest tls create --domain blank-agent-cards-c8a3daed.style.dev --from public --to vm=vm-6a42b1427fa04e31b3e391db31e71f11,port=8080
+```
+
+Freestyle TLS ingress needs no additional firewall grant. Both existing outbound
+firewall rules were preserved, with no public raw-port access added. Only the
+password-protected gateway binds `0.0.0.0`; web, game and agent remain loopback-only.
+No routes to OpenCode, private workspace files or the raw backend were published.
+To unpublish this game only, delete the above TLS rule; do not modify shared routes.
+
+Existing Coshell preview (unchanged):
+https://c8a3daedfe446a035a7cf3b0925a707f--8080.coshell.ai/
+It still returns **401 without Coshell authentication** at the outer edge. Both
+hostnames remain explicitly allowlisted for login and WebSockets. The preview
+retains its outer auth; the new hostname uses the application's password gate.
+
+The generated 12-character initial table password is delivered through the private
+root-only file `/etc/cards/initial-password`, not logs or source. Retrieve privately
+in your terminal with `sudo node -p 'require("node:fs").readFileSync("/etc/cards/initial-password", "utf8").trim()'`.
+`/etc/cards/gateway.json` holds a salted scrypt hash and signing key;
+`/etc/cards/agent-password` holds an independent random API password. All are mode
+0600 under a mode-0700 root-owned directory outside the repository. systemd
+credentials give each service only the secret it needs. Provisioning never prints
+secrets and exclusive creation refuses accidental overwrites/rotation.
 
 The frontend is a production snapshot at `/var/lib/cards-web/app/web`, not a dev
 server. Building copies source outside the workspace, so concurrent Trav edits,
 workspace `.next`, and web source remain untouched. Next's webpack build is used.
 The snapshot uses the installed workspace dependencies via a read-only mount;
-dependency upgrades need a rebuild. The compiled server URL is the preview origin.
+dependency upgrades need a rebuild. The production snapshot uses
+`NEXT_PUBLIC_SERVER_URL=same-origin`: HTTP images and WebSockets use the browser's
+current origin, preserving host-only sessions on both public and preview hosts.
+Local development still defaults to the game server's port 8787.
 
 ## Lifecycle
 
@@ -36,6 +75,10 @@ bash deploy/control.sh logs cards-game
 bash deploy/control.sh logs cards-web
 bash deploy/control.sh logs cards-agent
 sudo node deploy/verify.mjs
+sudo node deploy/login-verify.mjs # login/assets/WS only; no game restart
+sudo env CARDS_VERIFY_URL=https://blank-agent-cards-c8a3daed.style.dev node deploy/login-verify.mjs
+sudo env CARDS_VERIFY_ORIGIN=https://c8a3daedfe446a035a7cf3b0925a707f--8080.coshell.ai node deploy/login-verify.mjs
+sudo node --import tsx deploy/agent-verify.ts
 ```
 
 Installation is scoped to this VM/path and requires sudo. Services are enabled at
@@ -49,23 +92,45 @@ a successful build. Re-run after frontend changes to publish a new snapshot.
 
 | Service | Binding | Purpose |
 | --- | --- | --- |
-| `cards-game` | host `127.0.0.1:8787` | mock-only game, `/health`, `/ws`, `/rooms/` |
+| `cards-game` | host `127.0.0.1:8787` | Space Bunny game, `/health`, `/ws`, `/rooms/` |
 | `cards-web` | host `127.0.0.1:3001` | production Next frontend |
-| `cards-preview` | host `127.0.0.1:8080` | same-origin frontend/game gateway |
-| `cards-agent` | isolated network namespace `127.0.0.1:4097` | offline private OpenCode |
+| `cards-preview` | host `0.0.0.0:8080` | password-protected same-origin public/preview gateway |
+| `cards-agent` | host `127.0.0.1:4097` | private API-password-protected OpenCode with provider egress |
 | `opt-cards.mount` | read-only `/opt/cards` | source access without home access |
 
-Integration: preview `/health`, `wss://c8a3daedfe446a035a7cf3b0925a707f--8080.coshell.ai/ws`,
+Integration: public `/health`, `wss://blank-agent-cards-c8a3daed.style.dev/ws`,
 and authenticated `/rooms/:code/cards/:id`. Local integration uses
 `http://127.0.0.1:8080` with matching WebSocket Origin. Missing/foreign Origins fail
 upgrade; nonbrowser clients must supply the allowlisted Origin. Origin checking is
-not authentication; the edge gate and seat tokens provide the access controls.
+not authentication; the outer edge, application session, and seat tokens are
+separate access controls. The login page is public at the application gateway;
+all other HTTP routes (including health, assets and image URLs) and WebSocket
+upgrades require a valid session. Images still require the correct seat token.
+Sessions are HMAC-signed, expire after 12 hours, and use host-only `Secure`,
+`HttpOnly`, `SameSite=Strict` cookies. Upgrades also check Origin and disconnect
+at session expiry. Secure cookies require HTTPS in browsers; the localhost test
+harness passes the cookie explicitly and is not a plain-HTTP browser login demo.
+Login POSTs require allowlisted Origin, a bounded form, and globally at most ten
+attempts/minute with one password hash at a time. This global throttle can deny
+legitimate logins during abuse. Logout clears the browser cookie, but a stolen
+copy remains valid until expiry; session revocation is not per-user.
+
+Password forms (including wrong-password retry responses) use
+`Referrer-Policy: same-origin`. `no-referrer` makes browser form POST navigations
+send `Origin: null`, which correctly fails the CSRF allowlist and previously caused
+the deployed `/login` 403. Other gateway responses retain `no-referrer`. Login,
+logout and WebSocket checks use the fixed canonical Origin allowlist, never values
+derived from `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto`; missing, null and
+foreign Origins stay rejected. `npm test` includes isolated gateway regressions
+using disposable credentials and an ephemeral localhost port.
 
 ## Protections
 
-The deployment launcher forces mock regardless of the root agent config, removes
-the generated-engine opt-in, and rejects persisted generated/oversized rooms.
-Generated engine code is never accepted by this deployment. Each service has its
+The launcher selects Space Bunny for new rooms and the game service explicitly
+sets `CARDS_ALLOW_GENERATED_ENGINE=trusted-local`. Existing rooms retain their
+stored provider; old mock rooms do not silently migrate. Oversized rooms are
+rejected. Generated engine code is accepted only through the existing validated,
+bounded child-process pipeline, never in the game-server process. Each service has its
 own nonlogin OS user, no capabilities, no privilege elevation, a read-only system
 and home denial, private temp files, cgroup memory/CPU/task bounds, and private
 mode-0700 state directories. These are defense-in-depth service controls, **not a
@@ -100,37 +165,68 @@ backup; preserve owner/modes. Room cleanup is an operator action while stopped.
 
 ## Private Agent
 
-The independently credential-free OpenCode 1.18.18 runtime is healthy inside a
-`PrivateNetwork=yes` namespace. It has **no external network**, so provider/model
-inference is intentionally unavailable. Neither the host tunnel nor the public
-gateway can connect to this listener, even if a port-4097 preview is attempted.
-Health is checked with root `nsenter`, never by exposing the API. There is no API
-password in this namespace; only privileged local namespace access can reach it.
-No OpenCode configuration was changed for M5.
+OpenCode 1.18.18 uses its own HOME/XDG profile under `/var/lib/cards-agent` and
+enables only the `opencode` provider. No provider credentials were supplied.
+Space Bunny's credential-free image inference was actually exercised, not merely
+inferred from catalog metadata. Free access, quotas and availability can change.
 
-For real-agent experimentation, use the existing M4 independent runner and normal
-human provider login from `server/README.md`, only on a private trusted-local
-environment. Do not point this public/mock launcher at generated rooms or remove
-the namespace restriction just to make inference work. A network-capable private
-runtime and robust per-engine OS/container filesystem/network/syscall isolation
-need a separately reviewed design before public generated engines can be enabled.
+The previous offline namespace was removed to permit provider HTTPS egress.
+The listener remains localhost-only with a generated independent API password;
+only the game service receives that password (root can administer it). The public
+gateway has no agent route, and unauthenticated local API requests return 401.
+Tools, plugins, external skills, sharing, snapshots, formatters and LSP remain
+disabled, with deny-all session permissions. Service users, privilege restrictions,
+filesystem protection, cgroups and engine Node permission/VM/kill deadlines remain
+in place. These controls are not a hostile-code sandbox. Providers receive card
+images, game state/history and player names; use no sensitive data in game cards.
+
+Changing OpenCode configuration requires restarting `cards-agent`; changing the
+model/launcher requires restarting `cards-game`. Config is not hot-reloaded.
 
 ## Verification And Gaps
 
-All 46 existing shared/server/web tests and workspace typechecks passed before
-deployment; server's 29 tests/typecheck passed after protection changes, including
-the new deployment-profile regression test (47 total workspace tests).
-Production snapshot build passed. Live verification exercises frontend HTTP,
-health, foreign-origin rejection, config caps, flood closure, invalid seat token,
-two-player mock play, protected images, and chat/card/hand/score/turn persistence
-through actual systemd restarts. Agent namespace health passes; host 4097 is closed.
-Anonymous edge HTTP returns 401; authenticated external HTTP/WebSocket/browser
-rendering is not verified here because no existing secrets were reused. Existing
-frontend browser checks are documented in the milestone handoff, not claimed as
-a new M5 browser run.
+Current live verification passes application HTTP/WS authentication, secure cookie
+attributes/signatures/expiry, foreign/missing Origin rejection, logout, login
+throttling, config/flood/seat limits, protected images, two-player real Space Bunny
+turns, persistence through game and gateway restarts, and interrupted-turn recovery.
+The dedicated vision check sends seven circles without naming the count in card
+text and confirms a schema-valid seven-point ruling. Unit tests exercise provider
+failures, bounded timeout/cancellation, malformed code, rollback and recovery.
+Config validates against the authoritative OpenCode schema. The public-route
+change rebuilt the production snapshot with same-origin connections, preserving
+concurrent frontend source edits. All 44 current backend tests, the gateway
+regression, 17 frontend tests and shared/server typechecks pass, including the
+private API credential regression. Timeout/cancellation checks are unit tests;
+interrupted-turn recovery and persistence also ran against the live services.
+Anonymous public HTTPS returns the password form with 200. Anonymous Coshell
+preview HTTPS still returns its original outer 401.
 
-Remaining: anonymously public sharing policy, authenticated external browser demo,
-real-agent secure execution/networking, token expiry/rotation, automated backups,
+The login fix was also verified with Chromium through a temporary loopback HTTPS
+ingress at the canonical external hostname: wrong-password retry, correct-password
+303, secure browser cookie, frontend rendering and static assets all passed. The
+live login-only script checks the external Origin with forwarded HTTPS host,
+protected frontend/assets, health, upstream WebSocket, CSRF rejection and logout.
+This does not verify the actual Coshell edge header transformations: anonymous
+external access is blocked before reaching the application, and no Coshell/chat
+credentials were reused. Only `cards-preview` was restarted for this fix; the
+existing production frontend snapshot and concurrent web edits were preserved.
+
+The real public TLS route was verified without any Coshell credentials: password
+form, actual login POST/303, host-only secure cookie, frontend, ten authenticated
+static assets, health, WSS, foreign/null HTTP Origins, and missing/foreign or
+unauthenticated WebSocket rejection. Chromium at 1440px and 390px passed browser
+login, rendering with no page errors or homepage horizontal overflow, same-origin
+WSS, room creation/join, seat resume and card submission. A protected PNG returned
+200 with session+seat, 404 without seat, and 401 without session. Only the temporary
+verification room was removed, with a game-service restart for cleanup. The table
+password was read privately for verification and never logged; no signing keys or
+infrastructure auth files were read. The existing preview Origin also passes the
+local gateway login/assets/health/WS checks.
+
+This remains a single development VM, not an autoscaled production host. Availability
+depends on keeping the shared VM running; stopping it also stops the game services.
+
+Remaining: hostile-code engine sandboxing, seat token expiry/rotation, automated backups,
 retention, moderation, stronger abuse controls, and dependency/security lifecycle.
 
 **Key rotation remains pending.** Do not rotate the shared Freestyle API key:

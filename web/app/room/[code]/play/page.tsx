@@ -45,7 +45,7 @@ function Table({ snap }: { snap: RoomSnapshot }) {
     <main className={styles.table}>
       <header className={styles.header}>
         <h1 className={styles.title}>
-          <Link href="/">1000 Blank Agent Cards</Link>
+          <Link href="/">1000 blank agent cards</Link>
         </h1>
         <RoomCode code={snap.code} path="play" />
         {room.status !== "open" && <span className={styles.status}>reconnecting…</span>}

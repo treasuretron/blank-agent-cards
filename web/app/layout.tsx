@@ -7,7 +7,7 @@ import "./globals.css"
 const hand = localFont({ src: "./fonts/PatrickHand-Regular.ttf", variable: "--font-hand", display: "swap" })
 
 export const metadata: Metadata = {
-  title: "1000 Blank Agent Cards",
+  title: "1000 blank agent cards",
   description: "Draw the cards. The deck decides the game.",
 }
 
