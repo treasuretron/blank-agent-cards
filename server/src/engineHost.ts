@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { mechanics } from './mechanics.ts'
 import { RulesSchema, AgentVerdictSchema, type GameState, type Play, type GameAgent, type AgentInput } from '@cards/shared'
 
 const StateSchema = z.object({
@@ -38,7 +39,7 @@ export function runEngine(source: string, state: GameState, play: Play, timeout:
         settled = true; clearTimeout(timer); resolve(result)
       } catch (error) { fail(error instanceof Error ? error : new Error(String(error))) }
     })
-    child.stdin.end(JSON.stringify({ source, state, play, timeout, apply }))
+    child.stdin.end(JSON.stringify({ source, state, play, timeout, apply, mechanics: mechanics.sources }))
   })
 }
 
