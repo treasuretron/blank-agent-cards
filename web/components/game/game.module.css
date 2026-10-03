@@ -53,3 +53,5 @@
 .picked > div > div:first-child { box-shadow: 5px 5px 0 var(--ink); outline: 3px solid var(--ink); outline-offset: 3px; }
 .saveActions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .report { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; line-height: 1.35; border: 2px solid var(--ink); border-radius: var(--radius); padding: 12px; margin: 0; max-height: 60vh; overflow: auto; }
+.endGame { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.endGame button { padding: 2px 10px; }

@@ -364,6 +364,14 @@ studio when they're tired of drawing, or mid-game when the deck runs low.
   tests, 1 shared and 3 web tests, and a Playwright run with the mock agent. Not yet run
   against the real model.
 
+**End game.** Any player can end a game in play: "end game" in the table header,
+then a confirm. The top score wins; a tie at the top has no winner. The game-over
+screen opens for everyone, so cards can be saved as usual. If the agent is mid-ruling,
+the game ends once that ruling lands. A game ended this way can't be restarted with
+agent-drawn cards. In learning mode, the report is written as usual.
+*Status:* branch `end-game`, on top of `integration`. Covered by 4 server tests, 1 web
+test and a Playwright run.
+
 ## Open items
 
 - **opencode credential on the VM.** This chat's model access comes from coshell's

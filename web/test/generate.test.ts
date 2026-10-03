@@ -26,3 +26,7 @@ test("blocked while the agent is drawing or after someone has won", () => {
   assert.equal(generateLimit(snap({ phase: "ended", winnerId: "a" })).max, 0)
   assert.equal(generateLimit(snap({ phase: "ended", winnerId: null })).max, 3)
 })
+
+test("blocked once someone ends the game, even on a tie", () => {
+  assert.equal(generateLimit(snap({ phase: "ended", winnerId: null, endedBy: "a" })).max, 0)
+})

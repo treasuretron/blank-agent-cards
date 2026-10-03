@@ -29,6 +29,8 @@ export const ClientMsgSchema = z.discriminatedUnion("type", [
   // Ask the agent to write cards: into your quota while authoring, into the deck
   // during play (or to restart a game that ran out of cards).
   z.object({ type: z.literal("generateCards"), count: z.number().int().min(1).max(20) }),
+  // Any seated player, during play: the top score wins and the game is over.
+  z.object({ type: z.literal("endGame") }),
 ])
 export type ClientMsg = z.infer<typeof ClientMsgSchema>
 
@@ -76,6 +78,8 @@ export type RoomSnapshot = {
   generating: { playerId: string; count: number } | null
   // Cards the agent may still write in this room (config.generate.maxPerRoom).
   generateRemaining: number
+  // Who pressed "end game", if the game was ended early; null otherwise.
+  endedBy: string | null
 }
 
 export type ServerMsg =

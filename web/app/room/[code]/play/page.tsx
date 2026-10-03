@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { GenerateCards } from "@/components/cards/GenerateCards"
 import { RoomThread } from "@/components/chat/RoomThread"
+import { EndGame } from "@/components/game/EndGame"
 import { GameOver } from "@/components/game/GameOver"
 import { Hand } from "@/components/game/Hand"
 import { RulesPanel } from "@/components/game/RulesPanel"
@@ -37,7 +38,7 @@ function Table({ snap }: { snap: RoomSnapshot }) {
   const turnName = nameOf(snap, snap.turn?.playerId)
 
   let banner: string
-  if (snap.phase === "ended") banner = snap.winnerId ? `${nameOf(snap, snap.winnerId)} won the game.` : "Game over. No playable hands remain."
+  if (snap.phase === "ended") banner = snap.winnerId ? `${nameOf(snap, snap.winnerId)} won the game.` : snap.endedBy ? "Game over. It's a tie." : "Game over. No playable hands remain."
   else if (snap.agentPending) banner = "The agent is interpreting the card…"
   else if (myTurn) banner = "Your turn. Pick a card and play it."
   else banner = `Waiting for ${turnName} to play.`
@@ -53,6 +54,7 @@ function Table({ snap }: { snap: RoomSnapshot }) {
         <p className={`${styles.banner} ${myTurn && !snap.agentPending ? styles.yourTurn : ""}`} role="status" aria-live="polite">
           {banner}
         </p>
+        {snap.phase === "play" && <EndGame busy={snap.agentPending} />}
       </header>
 
       {room.error && (

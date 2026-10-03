@@ -18,6 +18,8 @@ type SavedRoom = {
   history: HistoryEntry[]; pendingCard: string | null; learning?: LearningStatus;
   // Cards the agent has written for this room so far.
   generated?: number;
+  // The player who ended the game early, if anyone did.
+  endedBy?: string;
 }
 // `learning` runs reflections and the report in order, off the turn's critical path.
 // `generating` is an in-flight card-writing request; a restart simply drops it.
@@ -95,6 +97,7 @@ export class Rooms {
       agentPending: room.pendingCard !== null, winnerId: room.state?.winnerId ?? null,
       gameCards: room.phase === 'ended' ? room.cards.map(view) : [],
       learning: room.config.mode === 'learning' ? room.learning ?? { notes: 0, report: 'none' } : null,
+      endedBy: room.endedBy ?? null,
       generating: room.generating, generateRemaining: Math.max(0, room.config.generate.maxPerRoom - (room.generated ?? 0)),
       thread: room.thread.map(entry => entry.kind === 'play' ? { ...entry, card: view(room.cards.find(c => c.id === entry.card.id)!) } : entry.kind === 'verdict' ? { ...entry, verdict: { ...entry.verdict, enginePatch: undefined } } : entry),
     }
@@ -215,6 +218,8 @@ export class Rooms {
         for (let i = deck.length - 1; i > 0; i--) { const j = randomInt(i + 1); [deck[i], deck[j]] = [deck[j], deck[i]] }
         room.state = { players: room.seats.map(s => ({ id: s.id, name: s.name, score: 0, hand: deck.splice(0, room.config.handSize) })), deck, discard: [], turn: { playerId: room.seats[randomInt(room.seats.length)].id, number: 1, playsThisTurn: 0 }, rules: baseRules(room.config.targetScore, room.config.handSize), vars: {}, winnerId: null }
         room.phase = 'play'
+      } else if (message.type === 'endGame') {
+        this.endGame(room, id)
       } else if (message.type === 'playCard') {
         await this.play(room, id, message.cardId)
       }
@@ -233,7 +238,7 @@ export class Rooms {
     if (count > room.config.generate.maxPerRequest) throw new Error(`Ask for at most ${room.config.generate.maxPerRequest} cards at a time`)
     if (count > room.config.generate.maxPerRoom - (room.generated ?? 0)) throw new Error('The agent has written all the cards this room allows')
     if (room.phase === 'authoring' && count > room.config.cardsPerPlayer - room.cards.filter(c => c.authorId === id).length) throw new Error('That is more cards than you have left to make')
-    if (room.phase === 'ended' && room.state?.winnerId) throw new Error('The game is over')
+    if (room.phase === 'ended' && (room.state?.winnerId || room.endedBy)) throw new Error('The game is over')
     room.generating = { playerId: id, count }
     const input: Promise<GenerateInput> = this.library.list().catch(() => []).then(library => ({
       count,
@@ -279,7 +284,7 @@ export class Rooms {
       cards = cards.slice(0, Math.max(0, room.config.cardsPerPlayer - room.cards.filter(c => c.authorId === id).length))
       room.cards.push(...cards)
       if (cards.length) say(`The agent drew ${cards.length} card${cards.length === 1 ? '' : 's'} for ${name}.`)
-    } else if (room.state && !room.state.winnerId) {
+    } else if (room.state && !room.state.winnerId && !room.endedBy) {
       const state = room.state
       room.cards.push(...cards)
       for (const card of cards) state.deck.splice(randomInt(state.deck.length + 1), 0, card.id)
@@ -307,6 +312,21 @@ export class Rooms {
     const operation = room.queue.then(task)
     room.queue = operation.catch(() => {})
     return operation
+  }
+
+  // Ends the game now. The top score wins; a tie at the top has no winner.
+  private endGame(room: Room, id: string) {
+    const state = room.state
+    if (room.phase !== 'play' || !state) throw new Error('There is no game in progress to end')
+    const top = Math.max(...state.players.map(p => p.score))
+    const leaders = state.players.filter(p => p.score === top)
+    state.winnerId = leaders.length === 1 ? leaders[0].id : null
+    room.phase = 'ended'
+    room.endedBy = id
+    const name = room.seats.find(s => s.id === id)!.name
+    const result = leaders.length === 1 ? `${leaders[0].name} wins with ${top} points.` : `It's a tie between ${leaders.map(p => p.name).join(' and ')} on ${top} points.`
+    room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'system', text: `${name} ended the game. ${result}` })
+    this.finishLearning(room)
   }
 
   private failedPlay(room: Room, cardId: string, error: string) {
