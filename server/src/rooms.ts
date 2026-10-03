@@ -2,8 +2,9 @@ import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { baseRules, cardFace, GameConfigSchema, type Card, type CardView, type ClientMsg, type GameAgent, type GameConfig, type GameState, type HistoryEntry, type Phase, type RoomSnapshot, type ServerMsg, type ThreadEntry } from '@cards/shared'
-import { composeCard } from './cards.ts'
+import { baseRules, cardFace, GameConfigSchema, type Card, type CardView, type ClientMsg, type SavedCardMeta, type GameAgent, type GameConfig, type GameState, type HistoryEntry, type Phase, type RoomSnapshot, type ServerMsg, type ThreadEntry } from '@cards/shared'
+import { composeCard, normalizeSavedCard } from './cards.ts'
+import { Library } from './library.ts'
 import { interpretPlay, runEngine } from './engineHost.ts'
 import { MockAgent } from './agent/mock.ts'
 import { OpenCodeAgent } from './agent/opencode.ts'
@@ -20,7 +21,10 @@ const baseSource = await readFile(fileURLToPath(new URL('../../game/engine.mjs',
 
 export class Rooms {
   readonly rooms = new Map<string, Room>()
-  constructor(readonly config: GameConfig, readonly directory: string, readonly agent?: GameAgent) {}
+  readonly library: Library
+  constructor(readonly config: GameConfig, readonly directory: string, readonly agent?: GameAgent, library?: Library) {
+    this.library = library ?? new Library(path.join(directory, 'library'))
+  }
 
   private gameAgent(config: GameConfig): GameAgent {
     if (this.agent) return this.agent
@@ -80,6 +84,7 @@ export class Rooms {
       turn: room.state ? { playerId: room.state.turn.playerId, number: room.state.turn.number } : null,
       rules: room.state?.rules ?? null, engineVersion: room.version, deckCount: room.state?.deck.length ?? 0,
       agentPending: room.pendingCard !== null, winnerId: room.state?.winnerId ?? null,
+      gameCards: room.phase === 'ended' ? room.cards.map(view) : [],
       thread: room.thread.map(entry => entry.kind === 'play' ? { ...entry, card: view(room.cards.find(c => c.id === entry.card.id)!) } : entry.kind === 'verdict' ? { ...entry, verdict: { ...entry.verdict, enginePatch: undefined } } : entry),
     }
   }
@@ -96,8 +101,24 @@ export class Rooms {
     if (!room || !seat) return null
     const card = room.cards.find(c => c.id === cardId)
     const publicCard = room.thread.some(e => e.kind === 'play' && e.card.id === cardId)
-    if (!card || !(publicCard || (room.phase === 'authoring' && card.authorId === seat.id) || room.state?.players.find(p => p.id === seat.id)?.hand.includes(cardId))) return null
+    if (!card || !(publicCard || room.phase === 'ended' || (room.phase === 'authoring' && card.authorId === seat.id) || room.state?.players.find(p => p.id === seat.id)?.hand.includes(cardId))) return null
     return Buffer.from(card.png.slice('data:image/png;base64,'.length), 'base64')
+  }
+
+  async libraryImage(code: string, name: string, token: string) {
+    const room = this.rooms.get(code)
+    if (!room || !this.seat(room, token)) return null
+    return (await this.library.read(name))?.png ?? null
+  }
+
+  // Shared by local and server-library imports. Imported cards count toward the quota.
+  private async importCard(room: Room, id: string, png: string, meta: SavedCardMeta) {
+    if (room.phase !== 'authoring') throw new Error('Authoring has ended')
+    if (room.cards.filter(c => c.authorId === id).length >= room.config.cardsPerPlayer) throw new Error('Card quota reached')
+    if ((meta.title?.length ?? 0) > room.config.card.titleMaxChars || meta.text.length > room.config.card.maxChars) throw new Error('Saved card text is longer than this game allows')
+    const normalized = await normalizeSavedCard(png, room.config.card)
+    if (room.cards.some(c => c.png === normalized)) throw new Error('That card is already in this game')
+    room.cards.push({ id: randomUUID(), authorId: id, title: meta.title, text: meta.text, png: normalized })
   }
 
   async handle(peer: Peer, message: ClientMsg): Promise<void> {
@@ -132,6 +153,19 @@ export class Rooms {
       }
       const id = peer.playerId
       if (!id || room.peers.get(id) !== peer) throw new Error('Seat is not authenticated')
+      if (message.type === 'listLibrary') {
+        const token = encodeURIComponent(room.seats.find(s => s.id === id)!.token)
+        const cards = (await this.library.list()).map(({ name, title, text, authorName }) => ({ name, title, text, authorName, imageUrl: `/rooms/${room.code}/library/${name}?token=${token}` }))
+        peer.send({ type: 'library', cards }); return
+      }
+      if (message.type === 'saveCards') {
+        if (room.phase !== 'ended') throw new Error('Cards can be saved once the game is over')
+        const cards = [...new Set(message.cardIds)].map(cardId => room.cards.find(c => c.id === cardId))
+        if (cards.some(c => !c)) throw new Error('Unknown card')
+        const names: string[] = []
+        for (const card of cards as Card[]) names.push(await this.library.save(card, room.seats.find(s => s.id === card.authorId)?.name ?? 'unknown', room.code))
+        peer.send({ type: 'cardsSaved', names }); return
+      }
       if (message.type === 'say') {
         room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'chat', authorId: id, text: message.text })
       } else if (message.type === 'submitCard') {
@@ -139,6 +173,12 @@ export class Rooms {
         if (room.cards.filter(c => c.authorId === id).length >= room.config.cardsPerPlayer) throw new Error('Card quota reached')
         const png = await composeCard(message.card, room.config.card)
         room.cards.push({ id: randomUUID(), authorId: id, title: message.card.title, text: message.card.text, png })
+      } else if (message.type === 'importCard') {
+        await this.importCard(room, id, message.png, message.meta)
+      } else if (message.type === 'importLibraryCard') {
+        const saved = await this.library.read(message.name)
+        if (!saved) throw new Error('Saved card not found')
+        await this.importCard(room, id, `data:image/png;base64,${saved.png.toString('base64')}`, saved.meta)
       } else if (message.type === 'deleteCard') {
         if (room.phase !== 'authoring') throw new Error('Authoring has ended')
         const index = room.cards.findIndex(c => c.id === message.cardId && c.authorId === id)

@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { CardFace } from "./card.ts"
 import { CardDraftSchema } from "./card.ts"
 import { ConfigOverridesSchema, type GameConfig } from "./config.ts"
+import { SavedCardMetaSchema, SavedCardNameSchema, type LibraryCard } from "./library.ts"
 import type { AgentVerdict, Rules } from "./rules.ts"
 
 const RoomCodeSchema = z.string().regex(/^[A-Z]{4}$/)
@@ -16,6 +17,12 @@ export const ClientMsgSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("startGame") }),
   z.object({ type: z.literal("playCard"), cardId: z.string() }),
   z.object({ type: z.literal("say"), text: z.string().min(1).max(500) }),
+  // Saved cards (M6). saveCards writes to the server library after the game ends;
+  // importCard takes a locally saved pair, importLibraryCard a server-library one.
+  z.object({ type: z.literal("saveCards"), cardIds: z.array(z.string()).min(1).max(100) }),
+  z.object({ type: z.literal("listLibrary") }),
+  z.object({ type: z.literal("importCard"), png: z.string().startsWith("data:image/png;base64,"), meta: SavedCardMetaSchema }),
+  z.object({ type: z.literal("importLibraryCard"), name: SavedCardNameSchema }),
 ])
 export type ClientMsg = z.infer<typeof ClientMsgSchema>
 
@@ -55,9 +62,13 @@ export type RoomSnapshot = {
   agentPending: boolean
   winnerId: string | null
   thread: ThreadEntry[]
+  // Every card in the game, revealed once the phase is "ended"; empty before.
+  gameCards: CardView[]
 }
 
 export type ServerMsg =
   | { type: "joined"; code: string; token: string; playerId: string }
   | { type: "state"; snapshot: RoomSnapshot }
   | { type: "error"; message: string }
+  | { type: "library"; cards: LibraryCard[] }
+  | { type: "cardsSaved"; names: string[] }

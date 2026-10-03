@@ -10,6 +10,7 @@ import { CardPreview } from "@/components/cards/CardPreview"
 import { CardTile, EmptySlot } from "@/components/cards/CardTile"
 import { ArtBoard, type ArtBoardHandle } from "@/components/studio/ArtBoard"
 import { CappedField } from "@/components/studio/CappedField"
+import { ImportCards } from "@/components/studio/ImportCards"
 import { RoomCode, RoomGate } from "@/components/room/RoomGate"
 import styles from "./studio.module.css"
 
@@ -169,6 +170,8 @@ function Studio({ snap }: { snap: RoomSnapshot }) {
                 ))}
               </div>
             </section>
+
+            <ImportCards snap={snap} />
 
             <section>
               <h2>Players</h2>

@@ -47,3 +47,8 @@
 .bigLink { font-size: 1.3rem; color: var(--ink); }
 .reopen { position: fixed; right: 20px; bottom: 20px; z-index: 5; }
 .cardButton, .cardButton[aria-pressed="true"] { background: none; color: inherit; }
+
+.wide { width: min(980px, 100%); max-height: calc(100vh - 40px); overflow: auto; }
+.saveGrid { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; padding: 6px 4px 10px; }
+.picked > div > div:first-child { box-shadow: 5px 5px 0 var(--ink); outline: 3px solid var(--ink); outline-offset: 3px; }
+.saveActions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }

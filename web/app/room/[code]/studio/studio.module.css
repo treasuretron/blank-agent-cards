@@ -33,3 +33,6 @@
 
 .dealt { display: grid; gap: 12px; justify-items: start; }
 .bigLink { font-size: 1.4rem; color: var(--ink); }
+
+.importActions { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.importReport { margin: 8px 0; padding-left: 20px; color: var(--muted); font-size: 0.9rem; }

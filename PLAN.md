@@ -199,7 +199,7 @@ stall on it.
 | **M3** | Game room: assistant-ui chat, room codes, card components, turn/win states | Agent C | M0 |
 | **M4** | `opencode.ts` adapter, `prompt.ts`, `opencode serve` on the VM | A + C | M1 |
 | **M5** | Deploy to `hackathon-drive`, player auth, persistence, key rotation | A + C | M1–M4 |
-| **M6** | End-of-game card saving + import into new games | — | M1–M3 |
+| **M6** | End-of-game card saving + import into new games | Agent (branch `m6-save-cards`) | M1–M3 |
 | **M7** | Fast mode / learning mode, learning reports, reusable mechanic snippets | — | M4 |
 
 M1, M2, M3 run in parallel once M0 lands. M6 and M7 are independent of each other.
@@ -252,16 +252,42 @@ File convention: each saved card is a pair with the same base name and different
 extensions.
 ```
 <title-slug>--<cardId>.png    the composited card image (text baked in)
-<title-slug>--<cardId>.json   { id, title, text, authorId, authorName, savedAt, gameCode }
+<title-slug>--<cardId>.json   { format: 1, id, title, text, authorName, savedAt, gameCode }
 ```
 Untitled cards use `untitled` as the slug. The `.json` is the text half: it keeps the
 title and text separate so the importer doesn't have to OCR the PNG.
 
 Import: in the card studio, add "Import saved cards". It accepts pairs from the server
 library or a local upload (loose files or the zip). Imported cards count toward
-`cardsPerPlayer` and keep their original author credit. Validate them with the same
-zod schemas as new cards, and reject a `.png` with no matching `.json`, or the reverse.
+`cardsPerPlayer`. Validate them with the same zod schemas as new cards, and reject a
+`.png` with no matching `.json`, or the reverse.
 Open question: should imported cards be allowed to exceed the quota?
+
+*Status:* implemented on branch `m6-save-cards`. Not merged or deployed yet.
+- The convention and schemas are in `shared/src/library.ts`. New protocol messages:
+  `saveCards`, `listLibrary`, `importCard`, `importLibraryCard`, with `library` and
+  `cardsSaved` replies. `RoomSnapshot.gameCards` lists every card once the game ends.
+- The server library is `<ROOM_DATA_DIR>/library/`, which is
+  `/var/lib/cards-game/rooms/library` on the VM. It's shared by every room, capped at
+  1000 cards, and its images are served at `/rooms/:code/library/:name` for seated
+  players, so the proxy needs no changes. See `server/src/library.ts`.
+- Imported PNGs must be exactly the card size. They're re-thresholded to 1-bit, and a
+  card already in the room is rejected as a duplicate.
+- Once the game ends, every card in it is visible to every player, including unplayed
+  hands and the deck.
+- Image routes now send `Access-Control-Allow-Origin: *`. Access is still controlled by
+  the token in the URL. This lets the browser download images when the web app and
+  game server are on different ports.
+- Author credit is only kept in the saved `.json`. Inside a game, an imported card
+  belongs to whoever imported it, and saving it again records that player as the
+  author.
+- Web: `components/game/SaveCards.tsx` is the end-of-game grid with download and
+  save-to-server. `components/studio/ImportCards.tsx` is the importer, which reads
+  server-library cards, loose files, and zip files (stored or deflated). Zip support is
+  in `web/lib/zip.ts`.
+- Verified by 4 server tests, 5 web tests, and a Playwright run against a local server
+  on a spare port: grid, multi-card zip, single-card pair, save to server, library
+  import, zip import that stops at the quota. `unzip -t` passes on the downloaded zip.
 
 **M7 — Fast mode and learning mode.** Add `"mode": "fast" | "learning"` to
 `game.config.json`. The host can override it when creating a room.

@@ -13,7 +13,7 @@ export function CardTile({
   size = "small",
   children,
 }: {
-  card: CardView
+  card: Pick<CardView, "title" | "text" | "imageUrl">
   aspect: string
   size?: "small" | "medium" | "large"
   children?: ReactNode

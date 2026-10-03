@@ -1,6 +1,6 @@
 "use client"
 
-import type { CardView, ClientMsg, ConfigOverrides, RoomSnapshot, ServerMsg } from "@cards/shared"
+import type { ClientMsg, ConfigOverrides, LibraryCard, RoomSnapshot, ServerMsg } from "@cards/shared"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 // One websocket per browser tab, shared by every room page. Seat tokens are
@@ -20,7 +20,11 @@ type RoomContext = {
   // Reattaches to a seat stored for `code`. Returns false if there is none.
   resume(code: string): boolean
   send(msg: ClientMsg): void
-  imageUrl(card: CardView): string
+  imageUrl(card: { imageUrl: string }): string
+  // Latest server card library listing, after a listLibrary request.
+  library: LibraryCard[] | null
+  // Names written by the latest saveCards request; null until one completes.
+  savedNames: string[] | null
 }
 
 const Ctx = createContext<RoomContext | null>(null)
@@ -64,6 +68,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ConnStatus>("idle")
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [library, setLibrary] = useState<LibraryCard[] | null>(null)
+  const [savedNames, setSavedNames] = useState<string[] | null>(null)
 
   const ws = useRef<WebSocket | null>(null)
   const outbox = useRef<ClientMsg[]>([])
@@ -103,6 +109,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       } else if (msg.type === "state") {
         current.current = msg.snapshot.code
         setSnapshot(msg.snapshot)
+      } else if (msg.type === "library") {
+        setLibrary(msg.cards)
+      } else if (msg.type === "cardsSaved") {
+        setSavedNames(msg.names)
       } else if (msg.type === "error") {
         setError(msg.message)
         pendingJoin.current?.reject(new Error(msg.message))
@@ -155,6 +165,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     outbox.current = []
     sock?.close()
     setSnapshot(null)
+    setLibrary(null)
+    setSavedNames(null)
   }, [])
 
   const awaitJoin = useCallback(
@@ -191,12 +203,12 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     [connect, dropSocket],
   )
 
-  const imageUrl = useCallback((card: CardView) => new URL(card.imageUrl, serverUrl()).toString(), [])
+  const imageUrl = useCallback((card: { imageUrl: string }) => new URL(card.imageUrl, serverUrl()).toString(), [])
   const clearError = useCallback(() => setError(null), [])
 
   const value = useMemo<RoomContext>(
-    () => ({ status, snapshot, error, clearError, createRoom, joinRoom, resume, send, imageUrl }),
-    [status, snapshot, error, clearError, createRoom, joinRoom, resume, send, imageUrl],
+    () => ({ status, snapshot, error, clearError, createRoom, joinRoom, resume, send, imageUrl, library, savedNames }),
+    [status, snapshot, error, clearError, createRoom, joinRoom, resume, send, imageUrl, library, savedNames],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

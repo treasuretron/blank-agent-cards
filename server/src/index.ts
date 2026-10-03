@@ -13,6 +13,9 @@ export async function createGameServer(options: { config: GameConfig; directory:
     response.setHeader('Cache-Control', 'no-store')
     response.setHeader('Referrer-Policy', 'no-referrer')
     response.setHeader('X-Content-Type-Options', 'nosniff')
+    // Card images are gated by the seat token in the URL, not by origin; this lets
+    // the end-of-game download read them when the web app runs on another port.
+    response.setHeader('Access-Control-Allow-Origin', '*')
     if (request.method === 'GET' && url.pathname === '/health') {
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ok: true })); return
     }
@@ -22,6 +25,15 @@ export async function createGameServer(options: { config: GameConfig; directory:
       const image = rooms.image(match[1], match[2], bearer ?? url.searchParams.get('token') ?? '')
       if (image) { response.setHeader('Content-Type', 'image/png'); response.end(image); return }
       response.writeHead(404); response.end('Not found'); return
+    }
+    const saved = url.pathname.match(/^\/rooms\/([A-Z]{4})\/library\/([a-z0-9-]+--[a-f0-9-]{36})$/)
+    if (request.method === 'GET' && saved) {
+      const bearer = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1]
+      rooms.libraryImage(saved[1], saved[2], bearer ?? url.searchParams.get('token') ?? '').then(image => {
+        if (image) { response.setHeader('Content-Type', 'image/png'); response.end(image); return }
+        response.writeHead(404); response.end('Not found')
+      }, () => { response.writeHead(500); response.end('Error') })
+      return
     }
     response.writeHead(404); response.end('Not found')
   })

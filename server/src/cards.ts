@@ -1,4 +1,4 @@
-import { createCanvas, loadImage, GlobalFonts } from '@napi-rs/canvas'
+import { createCanvas, loadImage, GlobalFonts, type Canvas } from '@napi-rs/canvas'
 import { fileURLToPath } from 'node:url'
 import { cardDraftSchema, type CardDraft, type GameConfig } from '@cards/shared'
 
@@ -6,10 +6,7 @@ GlobalFonts.registerFromPath(fileURLToPath(new URL('../assets/PatrickHand-Regula
 
 export async function composeCard(raw: CardDraft, config: GameConfig['card']) {
   const draft = cardDraftSchema(config).parse(raw)
-  const data = draft.art.slice('data:image/png;base64,'.length)
-  if (data.length > 3_000_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error('Invalid or oversized PNG')
-  const bytes = Buffer.from(data, 'base64')
-  if (bytes.length < 24 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || bytes.readUInt32BE(8) !== 13 || bytes.subarray(12, 16).toString() !== 'IHDR') throw new Error('Invalid PNG signature')
+  const bytes = pngBytes(draft.art, 3_000_000)
   const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20)
   if (!width || !height || width > config.widthPx || height > config.heightPx) throw new Error('Art exceeds card dimensions')
   const image = await loadImage(bytes)
@@ -31,7 +28,34 @@ export async function composeCard(raw: CardDraft, config: GameConfig['card']) {
     } else line += character
   }
   ctx.fillText(line, padding, y)
-  // Normalize all pixels, including anti-aliased text, to opaque black or white.
+  return oneBit(canvas)
+}
+
+// A previously saved card is already composited, so it is only re-encoded: it must
+// be exactly card-sized, and every pixel is forced back to opaque black or white.
+export async function normalizeSavedCard(png: string, config: GameConfig['card']) {
+  const bytes = pngBytes(png, 3_000_000)
+  if (bytes.readUInt32BE(16) !== config.widthPx || bytes.readUInt32BE(20) !== config.heightPx) throw new Error(`Saved card must be ${config.widthPx}x${config.heightPx}`)
+  const image = await loadImage(bytes)
+  if (image.width !== config.widthPx || image.height !== config.heightPx) throw new Error('PNG dimensions mismatch')
+  const canvas = createCanvas(config.widthPx, config.heightPx)
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(image, 0, 0)
+  return oneBit(canvas)
+}
+
+function pngBytes(dataUrl: string, maxLength: number) {
+  const data = dataUrl.slice('data:image/png;base64,'.length)
+  if (data.length > maxLength || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error('Invalid or oversized PNG')
+  const bytes = Buffer.from(data, 'base64')
+  if (bytes.length < 24 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || bytes.readUInt32BE(8) !== 13 || bytes.subarray(12, 16).toString() !== 'IHDR') throw new Error('Invalid PNG signature')
+  return bytes
+}
+
+// Normalize all pixels, including anti-aliased text, to opaque black or white.
+function oneBit(canvas: Canvas) {
+  const ctx = canvas.getContext('2d')
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height)
   for (let i = 0; i < pixels.data.length; i += 4) {
     const value = pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2] < 384 ? 0 : 255
