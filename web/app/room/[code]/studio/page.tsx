@@ -8,6 +8,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { CardPreview } from "@/components/cards/CardPreview"
 import { CardTile, EmptySlot } from "@/components/cards/CardTile"
+import { GenerateCards } from "@/components/cards/GenerateCards"
 import { ArtBoard, type ArtBoardHandle } from "@/components/studio/ArtBoard"
 import { CappedField } from "@/components/studio/CappedField"
 import { ImportCards } from "@/components/studio/ImportCards"
@@ -162,6 +163,7 @@ function Studio({ snap }: { snap: RoomSnapshot }) {
               <div className={styles.cardGrid}>
                 {mine.map((c) => (
                   <CardTile key={c.id} card={c} aspect={aspect}>
+                    {c.byAgent && <span className={styles.note}>by the agent</span>}
                     <button type="button" onClick={() => room.send({ type: "deleteCard", cardId: c.id })}>remove</button>
                   </CardTile>
                 ))}
@@ -169,6 +171,8 @@ function Studio({ snap }: { snap: RoomSnapshot }) {
                   <EmptySlot key={i} aspect={aspect} label={`#${mine.length + i + 1}`} />
                 ))}
               </div>
+              <h3 className={styles.subhead}>Out of ideas?</h3>
+              <GenerateCards snap={snap} />
             </section>
 
             <ImportCards snap={snap} />

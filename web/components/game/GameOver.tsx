@@ -3,6 +3,7 @@
 import type { RoomSnapshot } from "@cards/shared"
 import Link from "next/link"
 import { useState } from "react"
+import { GenerateCards } from "@/components/cards/GenerateCards"
 import { LearningReport } from "./LearningReport"
 import { SaveCards } from "./SaveCards"
 import styles from "./game.module.css"
@@ -34,6 +35,7 @@ export function GameOver({ snap }: { snap: RoomSnapshot }) {
           {winner ? (winner.id === snap.youId ? "You win!" : `${winner.name} wins!`) : "Nobody wins."}
         </h2>
         {!winner && <p>No playable hands remain.</p>}
+        {!winner && <GenerateCards snap={snap} label="keep playing: the agent draws" />}
         <ol className={styles.final}>
           {ranked.map((p) => (
             <li key={p.id} className={p.id === snap.winnerId ? styles.winner : undefined}>

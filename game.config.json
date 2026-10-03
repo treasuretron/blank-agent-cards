@@ -7,5 +7,6 @@
   "targetScore": 100,
   "card": { "widthPx": 480, "heightPx": 720, "maxChars": 140, "titleMaxChars": 24 },
   "agent": { "provider": "mock", "model": "opencode/space-bunny-free", "maxRollbackRetries": 1, "timeoutMs": 90000 },
+  "generate": { "maxPerRequest": 4, "maxPerRoom": 40 },
   "server": { "port": 8787 }
 }

@@ -46,3 +46,9 @@ test("verdict defaults and extensible effects support future mechanics", () => {
 test("engine card faces exclude PNG data", () => {
   assert.deepEqual(cardFace({ id: "c1", authorId: "p1", text: "Gain points", png: "private image" }), { id: "c1", authorId: "p1", text: "Gain points" })
 })
+
+test("configurations saved before card generation existed get its defaults", () => {
+  const { generate: _generate, ...old } = config
+  assert.deepEqual(GameConfigSchema.parse(old).generate, { maxPerRequest: 4, maxPerRoom: 40 })
+  assert.equal(ClientMsgSchema.safeParse({ type: "generateCards", count: 0 }).success, false)
+})

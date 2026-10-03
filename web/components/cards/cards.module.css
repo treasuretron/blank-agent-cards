@@ -34,3 +34,10 @@
 .previewTitle { padding: 6px 10px 0; font-size: 1.3rem; text-align: center; min-height: 2rem; overflow-wrap: anywhere; }
 .previewArt { width: 100%; display: block; image-rendering: pixelated; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); aspect-ratio: 1; }
 .previewText { padding: 6px 10px; font-size: 0.95rem; line-height: 1.15; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+
+.generate { display: grid; gap: 4px; }
+.generateRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.generateRow button { padding: 2px 10px; }
+.count { min-width: 1.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.generateNote { color: var(--muted); font-size: 0.85rem; margin: 0; }
+.byAgent { color: var(--muted); font-size: 0.85rem; }

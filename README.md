@@ -20,6 +20,10 @@ game engine itself.
    `engine.mjs`; broken engine patches are rejected and rolled back.
 6. **Win**: first to the target score, unless a card says otherwise.
 
+Out of ideas, or out of cards? Ask the agent to draw some. In the studio its cards
+fill your quota; mid-game they're shuffled into the deck, and a game that ran dry
+starts again.
+
 ## Layout
 
 ```
