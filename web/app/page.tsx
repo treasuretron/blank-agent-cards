@@ -35,7 +35,7 @@ export default function Home() {
 
   return (
     <main className={styles.main}>
-      <h1 className={styles.title}>1000 Blank Agent Cards</h1>
+      <h1 className={styles.title}>1000 blank agent cards</h1>
       <p className={styles.tag}>Draw the cards. The deck decides the game. An agent rewrites the rules.</p>
       {room.error && (
         <div className="banner-error" role="alert">

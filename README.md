@@ -1,4 +1,4 @@
-# 1000 Blank Agent Cards
+# 1000 blank agent cards
 
 Draw the cards. The deck decides the game. An agent rewrites the rules.
 
@@ -7,6 +7,11 @@ Everyone draws a few black-and-white cards, they're shuffled into one shared dec
 players take turns playing them. A central AI agent reads each played card against the
 current rules and decides what it does: score points, amend the rules, or rewrite the
 game engine itself.
+
+Trusted-friends beta: https://blank-agent-cards-c8a3daed.style.dev/.
+Enter the table password, then share a room's 4-letter code with players.
+The password controls access; generated engine code is not a hardened sandbox.
+See [deployment details](deploy/README.md) before inviting anyone.
 
 ## How a game works
 
