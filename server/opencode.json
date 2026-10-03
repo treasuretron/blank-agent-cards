@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/space-bunny-free",
+  "enabled_providers": ["opencode"],
+  "server": { "hostname": "127.0.0.1", "port": 4097, "mdns": false },
+  "share": "disabled",
+  "snapshot": false,
+  "autoupdate": false,
+  "permission": { "*": "deny" },
+  "tools": { "*": false },
+  "plugin": [],
+  "mcp": {},
+  "lsp": false,
+  "formatter": false,
+  "compaction": { "auto": false },
+  "default_agent": "card-referee",
+  "agent": {
+    "card-referee": {
+      "description": "Tool-free card game referee",
+      "mode": "primary",
+      "permission": { "*": "deny" },
+      "steps": 1
+    }
+  }
+}

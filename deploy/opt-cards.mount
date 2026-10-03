@@ -1,0 +1,11 @@
+[Unit]
+Description=Read-only cards workspace for dedicated service users
+
+[Mount]
+What=/home/ubuntu/1000 black agent cards
+Where=/opt/cards
+Type=none
+Options=bind,ro
+
+[Install]
+WantedBy=multi-user.target

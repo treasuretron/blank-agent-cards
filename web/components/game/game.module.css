@@ -1,0 +1,49 @@
+.h2 { font-size: 1.4rem; display: flex; align-items: baseline; gap: 8px; }
+.sub { color: var(--muted); font-size: 0.85rem; font-weight: normal; }
+.you { color: var(--muted); }
+
+.scores { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 8px; }
+.score {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  grid-template-areas: "marker name points" ". bar bar" ". hand hand";
+  gap: 2px 6px;
+  padding: 6px 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+}
+.turn { border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.winner { background: var(--ink); color: var(--paper); }
+.winner .sub, .winner .you { color: #ccc; }
+.away { opacity: 0.55; }
+.marker { grid-area: marker; }
+.name { grid-area: name; overflow-wrap: anywhere; }
+.points { grid-area: points; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.bar { grid-area: bar; height: 8px; border: 2px solid currentColor; border-radius: 99px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: currentColor; transition: width 600ms ease; }
+.handCount { grid-area: hand; display: flex; gap: 2px; align-items: center; min-height: 14px; }
+.miniCard { width: 9px; height: 13px; border: 1.5px solid currentColor; border-radius: 2px; }
+
+.rules { margin: 0; display: grid; gap: 2px; }
+.rules > div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted #bbb; }
+.rules dt { color: var(--muted); }
+.rules dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.invented dt { color: var(--ink); text-decoration: underline wavy; }
+.notes { padding-left: 20px; margin: 10px 0 0; font-size: 0.95rem; display: grid; gap: 4px; }
+
+.hand { display: flex; gap: 14px; overflow-x: auto; padding: 6px 4px 10px; align-items: flex-end; }
+.handCard { display: grid; gap: 8px; justify-items: center; transition: transform 120ms; flex: none; }
+.selected { transform: translateY(-14px); }
+.cardButton { padding: 0; border: none; box-shadow: none; background: none; border-radius: var(--radius); }
+.cardButton:active:not(:disabled) { transform: none; box-shadow: none; }
+.selected .cardButton > div > div { box-shadow: 5px 5px 0 var(--ink); }
+
+.overlay { position: fixed; inset: 0; background: rgba(255, 255, 255, 0.85); display: grid; place-items: center; z-index: 10; padding: 20px; }
+.overlayCard { border: var(--line); border-radius: var(--radius); background: var(--paper); box-shadow: 8px 8px 0 var(--ink); padding: 24px 28px; width: min(420px, 100%); display: grid; gap: 12px; }
+.overlayTitle { font-size: 2.4rem; text-align: center; margin: 0; }
+.final { padding: 0; margin: 0; list-style: none; display: grid; gap: 4px; }
+.final li { display: flex; justify-content: space-between; padding: 2px 8px; border-radius: 6px; font-size: 1.2rem; }
+.overlayActions { display: flex; justify-content: space-between; align-items: center; }
+.bigLink { font-size: 1.3rem; color: var(--ink); }
+.reopen { position: fixed; right: 20px; bottom: 20px; z-index: 5; }
+.cardButton, .cardButton[aria-pressed="true"] { background: none; color: inherit; }

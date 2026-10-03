@@ -1,0 +1,7 @@
+.main { max-width: 520px; margin: 8vh auto; padding: 0 20px; }
+.title { font-size: 2.6rem; line-height: 1; }
+.tag { color: var(--muted); margin-bottom: 2em; }
+.form { display: grid; gap: 14px; border: var(--line); border-radius: var(--radius); padding: 20px; }
+.row { display: flex; gap: 10px; }
+.code { text-transform: uppercase; letter-spacing: 0.3em; max-width: 9em; }
+.or { text-align: center; color: var(--muted); }

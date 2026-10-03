@@ -1,0 +1,26 @@
+[Unit]
+Description=Cards same-origin preview gateway
+After=cards-game.service cards-web.service
+Wants=cards-game.service cards-web.service
+Requires=opt-cards.mount
+After=opt-cards.mount
+
+[Service]
+User=cards-web
+Group=cards-web
+WorkingDirectory=/opt/cards
+ExecStart=/usr/local/bin/node deploy/proxy.mjs
+LoadCredential=gateway.json:/etc/cards/gateway.json
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+MemoryMax=128M
+CPUQuota=50%
+TasksMax=32
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

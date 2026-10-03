@@ -1,0 +1,59 @@
+:root {
+  --ink: #000;
+  --paper: #fff;
+  --muted: #666;
+  --line: 3px solid var(--ink);
+  --radius: 10px;
+  --font-ui: var(--font-hand), "Comic Sans MS", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 18px;
+}
+
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 6px 14px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 60ms, box-shadow 60ms;
+}
+button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button[aria-pressed="true"], button.primary { background: var(--ink); color: var(--paper); }
+
+input[type="text"], textarea {
+  border: var(--line);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  background: var(--paper);
+  width: 100%;
+}
+textarea { resize: vertical; }
+input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px dashed var(--ink); outline-offset: 3px; }
+
+h1, h2, h3 { font-weight: normal; margin: 0 0 0.4em; }
+
+.banner-error {
+  border: var(--line);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin: 12px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: repeating-linear-gradient(45deg, #fff 0 8px, #eee 8px 16px);
+}

@@ -1,0 +1,35 @@
+.main { max-width: 1200px; margin: 0 auto; padding: 16px 20px 60px; }
+.center { min-height: 70vh; display: grid; place-items: center; padding: 20px; }
+.joinForm { display: grid; gap: 12px; width: min(360px, 100%); }
+
+.header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 16px; margin-bottom: 12px; }
+.header h1 { font-size: 2rem; margin: 0; }
+.roomCode { display: flex; align-items: baseline; gap: 10px; }
+.roomCode strong { letter-spacing: 0.25em; font-size: 1.5rem; }
+.roomCode button { padding: 2px 10px; font-size: 0.9rem; }
+.status { color: var(--muted); }
+
+.columns { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
+@media (max-width: 960px) { .columns { grid-template-columns: 1fr; } }
+
+.editorGrid { display: grid; grid-template-columns: minmax(0, 480px) minmax(220px, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 760px) { .editorGrid { grid-template-columns: 1fr; } }
+.sideCol { display: grid; gap: 14px; justify-items: stretch; }
+.sideCol > [aria-label="Card preview"] { justify-self: center; }
+
+.side { display: grid; gap: 24px; }
+.side h2 { font-size: 1.4rem; }
+.quota { border: var(--line); border-radius: 999px; padding: 0 10px; margin-left: 6px; }
+.cardGrid { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.players { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 6px; }
+.players li { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-bottom: 2px dotted #bbb; padding-bottom: 4px; }
+.away { color: var(--muted); font-style: italic; }
+.badge { border: 2px solid var(--ink); border-radius: 6px; font-size: 0.75rem; padding: 0 5px; margin-left: 6px; }
+.progress { display: inline-flex; gap: 4px; }
+.pip, .pipFull { width: 12px; height: 16px; border: 2px solid var(--ink); border-radius: 3px; }
+.pipFull { background: var(--ink); }
+.note { color: var(--muted); margin: 8px 0 0; }
+
+.dealt { display: grid; gap: 12px; justify-items: start; }
+.bigLink { font-size: 1.4rem; color: var(--ink); }

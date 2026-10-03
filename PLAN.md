@@ -80,6 +80,10 @@ web/
 
 ## Contracts (M0 — build this first, everything else depends on it)
 
+M0 is implemented and verified in `shared/`. Use `shared/src/index.ts` exports and
+`shared/README.md` as the authoritative handoff; the examples below are the original
+planning sketches. Shared type-checking and all six contract tests pass. M1 can begin.
+
 ### game.config.json
 
 ```jsonc
@@ -195,8 +199,10 @@ stall on it.
 | **M3** | Game room: assistant-ui chat, room codes, card components, turn/win states | Agent C | M0 |
 | **M4** | `opencode.ts` adapter, `prompt.ts`, `opencode serve` on the VM | A + C | M1 |
 | **M5** | Deploy to `hackathon-drive`, player auth, persistence, key rotation | A + C | M1–M4 |
+| **M6** | End-of-game card saving + import into new games | — | M1–M3 |
+| **M7** | Fast mode / learning mode, learning reports, reusable mechanic snippets | — | M4 |
 
-M1, M2, M3 run in parallel once M0 lands.
+M1, M2, M3 run in parallel once M0 lands. M6 and M7 are independent of each other.
 
 ### Per-milestone detail
 
@@ -212,10 +218,15 @@ rollback on a bad agent patch.
 compositing `clearRect` — it has to actually erase ink to white so the card stays
 opaque). Image import thresholds to 1-bit on the client so imports obey the same
 constraint as drawing. Live char counter, hard cap.
+*Status:* implemented in `web/app/room/[code]/studio` and verified against the
+real M1 server, including server-composited images.
 
 **M3** — assistant-ui as the thread. Card plays render as card components inline
 (generative UI), not as image dumps. One shared thread per room; players see each
 other's messages and the agent's verdicts.
+*Status:* implemented at `web/app/room/[code]/play`. A two-player browser test against
+the real M1 server with the mock agent passed: authoring, dealing, chat, six plays,
+a win, and reconnect. Details are in `web/README.md`.
 
 **M4** — `opencode serve` with cwd pinned to `game/`. Needs a credential on the VM
 (see Open items). Session per turn or one long-lived session — one long-lived
@@ -224,6 +235,54 @@ session is cheaper and gives the agent memory of the game so far.
 **M5** — provision script against the Freestyle API, firewall rules, a public URL,
 per-player access tokens so nobody can impersonate a seat, state persistence so a
 reconnect doesn't lose the game.
+*Status:* protected mock deployment is running on the existing VM via systemd;
+frontend is an independent production snapshot and OpenCode is offline in a private
+network namespace. See `deploy/README.md` for the port-8080 Coshell preview,
+lifecycle, verified restart/reconnect, limits, and remaining public/sandbox gaps.
+No VM provisioning or key rotation was needed/performed. Freestyle rotation awaits
+explicit scoped confirmation because existing Coshell infrastructure may use it.
+
+**M6 — Save liked cards.** When the game ends (decided by `checkWin` / the agent, not
+a fixed screen), each player gets a grid of every card played or dealt in that game.
+Clicking a card toggles it as saved. On confirm, the player chooses where to save:
+- **Local** — download to their machine (zip if more than one card).
+- **Server** — store in a shared card library on the VM.
+
+File convention: each saved card is a pair with the same base name and different
+extensions.
+```
+<title-slug>--<cardId>.png    the composited card image (text baked in)
+<title-slug>--<cardId>.json   { id, title, text, authorId, authorName, savedAt, gameCode }
+```
+Untitled cards use `untitled` as the slug. The `.json` is the text half: it keeps the
+title and text separate so the importer doesn't have to OCR the PNG.
+
+Import: in the card studio, add "Import saved cards". It accepts pairs from the server
+library or a local upload (loose files or the zip). Imported cards count toward
+`cardsPerPlayer` and keep their original author credit. Validate them with the same
+zod schemas as new cards, and reject a `.png` with no matching `.json`, or the reverse.
+Open question: should imported cards be allowed to exceed the quota?
+
+**M7 — Fast mode and learning mode.** Add `"mode": "fast" | "learning"` to
+`game.config.json`. The host can override it when creating a room.
+- **Fast** is the current behavior, tuned for speed. This is the mode M7 is trying to
+  make faster.
+- **Learning** — after each card's verdict, the agent runs a second reflection pass
+  outside the turn's critical path. It looks at the card, its own narration and patch,
+  how the change fit with the existing rules (conflicts, overrides, dead rules), how
+  long the turn took, and whether a rollback happened. Notes are appended to
+  `game/learning/<gameCode>.jsonl`.
+- **End-of-game report** — learning mode writes `game/learning/<gameCode>-report.md`:
+  recurring mechanics, slow or failed turns, prompt and engine friction, and specific
+  advice for making fast mode faster.
+- **Mechanic snippets** — when reports show mechanics that come up again and again
+  (steal points, skip turn, reverse order, draw extra, conditional scoring, etc.),
+  pull them into a curated, human-reviewed library at `game/mechanics/*.mjs`. Each
+  snippet is a small pure function with a fixed signature. In fast mode the agent can
+  then answer with `{ mechanic: "stealPoints", params: {...} }` instead of rewriting
+  `engine.mjs`: fewer tokens, fewer rollbacks.
+  The snippets are read-only to the agent, so the "agent writes one file" blast
+  radius stays the same.
 
 ## Open items
 
@@ -240,6 +299,7 @@ reconnect doesn't lose the game.
 
 ## Non-goals
 
-- No accounts, no cross-game persistence, no matchmaking.
+- No accounts, no matchmaking. The only thing that persists across games is saved
+  cards (M6) and learning notes (M7). Game state does not.
 - The agent never holds cards and never plays.
 - No moderation on card text — it's a room of friends drawing rude things.

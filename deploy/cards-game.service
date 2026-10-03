@@ -1,0 +1,35 @@
+[Unit]
+Description=Cards trusted-friends Space Bunny game server
+After=network.target
+Requires=opt-cards.mount
+After=opt-cards.mount
+
+[Service]
+User=cards-game
+Group=cards-game
+WorkingDirectory=/opt/cards
+ExecStart=/usr/local/bin/node --import tsx deploy/game.ts
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/cards-game
+Environment=CARDS_ALLOW_GENERATED_ENGINE=trusted-local
+LoadCredential=agent-password:/etc/cards/agent-password
+StateDirectory=cards-game
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+MemoryMax=768M
+CPUQuota=150%
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

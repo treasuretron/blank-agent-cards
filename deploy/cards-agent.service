@@ -1,0 +1,35 @@
+[Unit]
+Description=Cards private authenticated OpenCode runtime (never public)
+After=network.target
+Requires=opt-cards.mount
+After=opt-cards.mount
+
+[Service]
+User=cards-agent
+Group=cards-agent
+WorkingDirectory=/opt/cards
+ExecStart=/usr/local/bin/node --import tsx server/scripts/opencode-runtime.ts
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=CARDS_OPENCODE_HOME=/var/lib/cards-agent
+Environment=CARDS_OPENCODE_PORT=4097
+StateDirectory=cards-agent
+StateDirectoryMode=0700
+UMask=0077
+LoadCredential=agent-password:/etc/cards/agent-password
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=1G
+CPUQuota=100%
+TasksMax=128
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

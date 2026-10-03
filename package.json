@@ -1,0 +1,17 @@
+{
+  "name": "blank-agent-cards",
+  "private": true,
+  "type": "module",
+  "workspaces": ["shared", "server", "web"],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "start:server": "npm run start -w server",
+    "build:web": "npm run build -w web",
+    "test": "npm test -w server",
+    "typecheck": "tsc -p shared && tsc -p server --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
