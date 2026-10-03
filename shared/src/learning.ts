@@ -36,6 +36,8 @@ export type ReflectionInput = {
   verdict: Omit<AgentVerdict, "enginePatch">
   enginePatchChars: number
   metrics: TurnMetrics
+  // Names in the snippet library, so reflections can say which one fit or was missing.
+  snippets?: string[]
 }
 
 export type LearningNote = {

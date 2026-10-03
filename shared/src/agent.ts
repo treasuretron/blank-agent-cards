@@ -19,6 +19,8 @@ export type AgentInput = {
   state: GameState
   playerNames: Record<string, string>
   history: HistoryEntry[]
+  // One line per reviewed snippet the engine may `import { … } from 'mechanics'`.
+  mechanics?: string
   // Set on a retry after the previous enginePatch failed validation.
   previousError?: string
 }

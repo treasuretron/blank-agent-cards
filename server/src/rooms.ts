@@ -6,6 +6,7 @@ import { baseRules, cardFace, EXAMPLE_CARDS, GameConfigSchema, type GeneratedCar
 import { composeCard, normalizeSavedCard, renderDoodle } from './cards.ts'
 import { Library } from './library.ts'
 import { LearningStore, learningStats, renderReport } from './learning.ts'
+import { mechanics } from './mechanics.ts'
 import { interpretPlay, runEngine } from './engineHost.ts'
 import { MockAgent } from './agent/mock.ts'
 import { OpenCodeAgent } from './agent/opencode.ts'
@@ -355,7 +356,7 @@ export class Rooms {
     room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'play', authorId: id, card: { ...cardFace(card), imageUrl: '' } })
     await this.save(room); this.broadcast(room)
     const started = Date.now(), rulesBefore = state.rules, turn = state.turn.number
-    const outcome = await interpretPlay(this.gameAgent(room.config), { card, playerId: id, rules: state.rules, engineSource: room.source, state, history: room.history, playerNames: Object.fromEntries(room.seats.map(s => [s.id, s.name])) }, room.config.agent.maxRollbackRetries, room.config.agent.timeoutMs)
+    const outcome = await interpretPlay(this.gameAgent(room.config), { card, playerId: id, rules: state.rules, engineSource: room.source, state, history: room.history, mechanics: mechanics.catalog, playerNames: Object.fromEntries(room.seats.map(s => [s.id, s.name])) }, room.config.agent.maxRollbackRetries, room.config.agent.timeoutMs)
     const metrics = { durationMs: Date.now() - started, attempts: outcome.attempts, engineChanged: false, failed: true, engineError: outcome.error }
     const playerName = room.seats.find(s => s.id === id)!.name
     if (outcome.error !== undefined || !outcome.result?.result || !outcome.verdict) {
@@ -387,7 +388,7 @@ export class Rooms {
       if (verdict && agent.reflect) {
         const { enginePatch, ...rest } = verdict
         try {
-          note.reflection = ReflectionSchema.parse(await withTimeout(agent.reflect({ turn: play.turn, playerName: play.playerName, card: cardFace(card), rulesBefore: play.rulesBefore, rulesAfter: play.rulesAfter, verdict: rest, enginePatchChars: enginePatch?.length ?? 0, metrics: play.metrics }), room.config.agent.timeoutMs))
+          note.reflection = ReflectionSchema.parse(await withTimeout(agent.reflect({ turn: play.turn, playerName: play.playerName, card: cardFace(card), rulesBefore: play.rulesBefore, rulesAfter: play.rulesAfter, verdict: rest, enginePatchChars: enginePatch?.length ?? 0, metrics: play.metrics, snippets: mechanics.names }), room.config.agent.timeoutMs))
         } catch (error) { note.reflectionError = error instanceof Error ? error.message : String(error) }
       }
       await this.learningStore.append(room.code, note)

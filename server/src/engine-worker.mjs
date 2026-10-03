@@ -6,7 +6,21 @@ try {
   const request = JSON.parse(input)
   const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } })
   const module = new vm.SourceTextModule(request.source, { context })
-  await module.link(() => { throw new Error('Engine imports are forbidden') })
+  // The only importable module is the reviewed mechanics library, whose source the
+  // host passes in. Nothing is read from disk here.
+  const mechanics = request.mechanics ?? {}
+  const files = new Map()
+  const file = name => {
+    if (!files.has(name)) files.set(name, new vm.SourceTextModule(mechanics[name], { context, identifier: `mechanics/${name}` }))
+    return files.get(name)
+  }
+  const index = new vm.SourceTextModule(Object.keys(mechanics).map(name => `export * from 'mechanics/${name}'`).join('\n'), { context, identifier: 'mechanics' })
+  await module.link(specifier => {
+    if (specifier === 'mechanics') return index
+    const name = specifier.match(/^mechanics\/([a-z0-9-]+)$/)?.[1]
+    if (name && Object.hasOwn(mechanics, name)) return file(name)
+    throw new Error(`Engine imports are forbidden except 'mechanics' (got '${specifier}')`)
+  })
   await module.evaluate({ timeout: request.timeout })
   const engine = module.namespace
   if (!Number.isInteger(engine.meta?.version) || engine.meta.version < 1 ||
