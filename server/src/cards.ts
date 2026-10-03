@@ -20,15 +20,24 @@ export async function composeCard(raw: CardDraft, config: GameConfig['card']) {
   ctx.drawImage(image, padding, artTop, canvas.width - padding * 2, artHeight)
   ctx.fillStyle = 'black'; ctx.textBaseline = 'top'; ctx.font = `${titleSize}px "Patrick Hand"`
   ctx.fillText(draft.title ?? '', padding, padding, canvas.width - padding * 2)
-  ctx.font = `${textSize}px "Patrick Hand"`
-  let y = artTop + artHeight + padding, line = ''
-  for (const character of draft.text) {
-    if (character === '\n' || ctx.measureText(line + character).width > canvas.width - padding * 2) {
-      ctx.fillText(line, padding, y); y += textSize * 1.25; line = character === '\n' ? '' : character
+  // Long texts shrink the font until every line fits between the art and the bottom edge.
+  const textTop = artTop + artHeight + padding, textWidth = canvas.width - padding * 2
+  let size = textSize, lines = wrap(ctx, draft.text, size, textWidth)
+  while (size > 10 && textTop + lines.length * size * 1.25 > canvas.height - padding) lines = wrap(ctx, draft.text, --size, textWidth)
+  lines.forEach((line, i) => ctx.fillText(line, padding, textTop + i * size * 1.25))
+  return oneBit(canvas)
+}
+
+function wrap(ctx: ReturnType<Canvas['getContext']>, text: string, size: number, width: number) {
+  ctx.font = `${size}px "Patrick Hand"`
+  const lines: string[] = []
+  let line = ''
+  for (const character of text) {
+    if (character === '\n' || ctx.measureText(line + character).width > width) {
+      lines.push(line); line = character === '\n' ? '' : character
     } else line += character
   }
-  ctx.fillText(line, padding, y)
-  return oneBit(canvas)
+  return [...lines, line]
 }
 
 // A previously saved card is already composited, so it is only re-encoded: it must

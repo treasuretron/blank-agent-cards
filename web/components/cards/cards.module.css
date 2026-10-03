@@ -33,4 +33,4 @@
 }
 .previewTitle { padding: 6px 10px 0; font-size: 1.3rem; text-align: center; min-height: 2rem; overflow-wrap: anywhere; }
 .previewArt { width: 100%; display: block; image-rendering: pixelated; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); aspect-ratio: 1; }
-.previewText { padding: 6px 10px; font-size: 0.95rem; line-height: 1.15; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+.previewText { padding: 6px 10px; min-height: 0; font-size: 0.95rem; line-height: 1.15; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }

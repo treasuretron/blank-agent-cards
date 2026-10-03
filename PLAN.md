@@ -93,7 +93,7 @@ planning sketches. Shared type-checking and all six contract tests pass. M1 can 
   "cardsPerPlayer": 4,
   "handSize": 3,
   "targetScore": 100,
-  "card": { "widthPx": 480, "heightPx": 720, "maxChars": 140, "titleMaxChars": 24 },
+  "card": { "widthPx": 480, "heightPx": 720, "maxChars": 300, "titleMaxChars": 24 },
   "agent": { "provider": "mock", "maxRollbackRetries": 1, "timeoutMs": 60000 }
 }
 ```
