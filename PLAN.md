@@ -361,6 +361,15 @@ studio when they're tired of drawing, or mid-game when the deck runs low.
   understands. OpenCode uses a text-only throwaway session, the same setup as reflect.
 - **Known gap:** reviving a learning-mode game leaves its end-of-game report as
   written at the first ending.
+- **Saved cards:** the agent is shown up to 30 of the cards players have saved on the
+  server (the game-over screen's "save cards you liked"), newest first, as its own
+  `savedCards` input alongside the built-in examples. Cards that repeat one of those
+  are dropped, so the library doesn't fill up with near-duplicates.
+- **Robustness:** the model's JSON is malformed often enough to matter, so a batch is
+  salvaged object by object (a bad object or a truncated tail no longer costs the whole
+  request), doodles are clamped rather than discarded, and a batch that comes back empty
+  is retried once with a slimmer context. Upstream model errors are shown to players as
+  "The agent is having trouble right now" rather than a provider dump.
 - *Status:* built on branch `generate-cards`, on top of `m7-modes`. Verified by 9 server
   tests, 1 shared and 3 web tests, and a Playwright run with the mock agent. Not yet run
   against the real model.
