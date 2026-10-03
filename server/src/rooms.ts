@@ -241,6 +241,9 @@ export class Rooms {
     if (room.phase === 'authoring' && count > room.config.cardsPerPlayer - room.cards.filter(c => c.authorId === id).length) throw new Error('That is more cards than you have left to make')
     if (room.phase === 'ended' && (room.state?.winnerId || room.endedBy)) throw new Error('The game is over')
     room.generating = { playerId: id, count }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new Error('The agent took too long writing cards')), room.config.agent.timeoutMs)
+    const cancelled = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }))
     const input: Promise<GenerateInput> = this.library.list().catch(() => []).then(library => ({
       count,
       limits: { titleMaxChars: room.config.card.titleMaxChars, maxChars: room.config.card.maxChars },
@@ -249,8 +252,10 @@ export class Rooms {
       rules: room.state?.rules ?? null,
       history: room.history.slice(-10).map(({ playerName, card, narration }) => ({ playerName, card, narration })),
     }))
-    void input
-      .then(input => withTimeout(agent.generateCards!(input), room.config.agent.timeoutMs, 'The agent took too long writing cards'))
+    void Promise.race([input.then(input => {
+      controller.signal.throwIfAborted()
+      return agent.generateCards!(input, controller.signal)
+    }), cancelled])
       .then(written => this.composeGenerated(room, id, written, count))
       .then(cards => this.enqueue(room, () => this.addGenerated(room, id, cards)))
       .catch(error => {
@@ -258,6 +263,7 @@ export class Rooms {
         this.broadcast(room)
         room.peers.get(id)?.send({ type: 'error', message: `The agent couldn't write cards: ${error instanceof Error ? error.message : String(error)}` })
       })
+      .finally(() => clearTimeout(timer))
   }
 
   // Keeps cards that fit this room's limits and aren't repeats, then draws them.
@@ -277,6 +283,7 @@ export class Rooms {
   }
 
   private async addGenerated(room: Room, id: string, cards: Card[]) {
+    const requested = room.generating?.count ?? cards.length
     room.generating = null
     const name = room.seats.find(s => s.id === id)!.name
     const say = (text: string) => room.thread.push({ id: randomUUID(), at: Date.now(), kind: 'system', text })
@@ -306,6 +313,7 @@ export class Rooms {
       cards = []
     }
     room.generated = (room.generated ?? 0) + cards.length
+    if (cards.length && cards.length < requested) say(`Only ${cards.length} of ${requested} requested cards could be added. You can ask for the rest again.`)
     await this.save(room); this.broadcast(room)
   }
 

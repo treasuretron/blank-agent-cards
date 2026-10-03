@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { baseRules, type AgentInput } from '@cards/shared'
+import { baseRules, EXAMPLE_CARDS, type GenerateInput, type AgentInput } from '@cards/shared'
 import { OpenCodeAgent } from '../src/agent/opencode.ts'
 import { interpretPlay } from '../src/engineHost.ts'
 import { Rooms } from '../src/rooms.ts'
@@ -16,7 +16,7 @@ const input: AgentInput = {
 }
 const verdict = { narration: 'Ten points!', effects: [{ kind: 'score', amount: 10 }], rulesPatch: {}, enginePatch: 'full source' }
 
-async function mock(t: { after(fn: () => Promise<void>): void }, options: { text?: string; error?: string; delay?: number; image?: boolean; connected?: boolean; status?: number; wrongSession?: boolean; tool?: boolean } = {}) {
+async function mock(t: { after(fn: () => Promise<void>): void }, options: { text?: string; texts?: string[]; error?: string; delay?: number; image?: boolean; connected?: boolean; status?: number; wrongSession?: boolean; tool?: boolean } = {}) {
   const requests: { path: string; body: any; authorization?: string }[] = []
   let count = 0
   const server = createServer(async (req, res) => {
@@ -30,7 +30,7 @@ async function mock(t: { after(fn: () => Promise<void>): void }, options: { text
     if (path.endsWith('/message')) {
       if (options.delay) await new Promise(resolve => setTimeout(resolve, options.delay))
       res.statusCode = options.status ?? 200
-      return res.end(JSON.stringify({ info: { sessionID: options.wrongSession ? 'wrong' : path.split('/')[2], providerID: 'test', modelID: 'vision', ...(options.error ? { error: { name: options.error } } : {}) }, parts: options.tool ? [{ type: 'tool' }] : [{ type: 'text', text: options.text ?? JSON.stringify(verdict) }] }))
+      return res.end(JSON.stringify({ info: { sessionID: options.wrongSession ? 'wrong' : path.split('/')[2], providerID: 'test', modelID: 'vision', ...(options.error ? { error: { name: options.error } } : {}) }, parts: options.tool ? [{ type: 'tool' }] : [{ type: 'text', text: options.texts?.shift() ?? options.text ?? JSON.stringify(verdict) }] }))
     }
     res.end('true')
   })
@@ -59,6 +59,50 @@ test('SDK HTTP shape includes image, explicit model, context and deny permission
   assert.deepEqual(requests.find(r => r.path === '/session')!.body.permission, [{ permission: '*', pattern: '*', action: 'deny' }])
   assert.equal(requests.filter(r => r.path.endsWith('/abort')).length, 2)
   assert.equal(requests.filter(r => /^\/session\/session-\d+$/.test(r.path)).length, 2)
+})
+
+const generateInput: GenerateInput = { count: 2, limits: { titleMaxChars: 24, maxChars: 300 }, examples: EXAMPLE_CARDS, existing: [], rules: null, history: [] }
+const generated = { title: 'Lunch', text: 'Gain 5 points for your imaginary sandwich.', doodle: [[10, 10, 20, 20]] }
+
+test('card writing retries malformed or maximum-steps output in a fresh session, without images', async t => {
+  const { agent, requests } = await mock(t, { texts: ['Maximum steps reached', '```json\n' + JSON.stringify({ cards: [generated] }) + '\n```'] })
+  assert.deepEqual(await agent.generateCards(generateInput), [generated])
+  const prompts = requests.filter(r => r.path.endsWith('/message'))
+  assert.equal(prompts.length, 2)
+  assert.notEqual(prompts[0].path, prompts[1].path)
+  assert.equal(prompts[0].body.parts.length, 1)
+  assert.ok(JSON.parse(prompts[1].body.parts[0].text).previousError)
+  assert.equal(requests.filter(r => r.path.endsWith('/abort')).length, 2)
+})
+
+test('card writing keeps valid siblings, bounds count, and does not retry partial success', async t => {
+  const { agent, requests } = await mock(t, { text: JSON.stringify({ cards: [{ ...generated, doodle: [[1, 2, 3, 4, 5]] }, generated, generated] }) })
+  assert.deepEqual(await agent.generateCards(generateInput), [generated])
+  assert.equal(requests.filter(r => r.path.endsWith('/message')).length, 1)
+})
+
+test('card writing malformed output retries only once', async t => {
+  const { agent, requests } = await mock(t, { text: 'not JSON' })
+  await assert.rejects(agent.generateCards(generateInput), /no valid cards after one retry/)
+  assert.equal(requests.filter(r => r.path.endsWith('/message')).length, 2)
+})
+
+test('card writing uses a single deadline across retry and cancels runtime work', async t => {
+  const { agent, requests } = await mock(t, { delay: 120, text: 'not JSON' })
+  agent.options.timeoutMs = 200
+  const start = Date.now()
+  await assert.rejects(agent.generateCards(generateInput), /timeout|aborted/i)
+  assert.ok(Date.now() - start < 600)
+  assert.equal(requests.filter(r => r.path.endsWith('/message')).length, 2)
+  assert.equal(requests.filter(r => r.path.endsWith('/abort')).length, 2)
+})
+
+test('card writing does not retry provider errors or pre-cancelled requests', async t => {
+  const { agent, requests } = await mock(t, { status: 500 })
+  await assert.rejects(agent.generateCards(generateInput))
+  assert.equal(requests.filter(r => r.path.endsWith('/message')).length, 1)
+  await assert.rejects(agent.generateCards(generateInput, AbortSignal.abort(new Error('cancelled'))), /cancelled/)
+  assert.equal(requests.filter(r => r.path.endsWith('/message')).length, 1)
 })
 
 test('private runtime password authenticates provider, prompt and cleanup requests', async t => {
@@ -111,6 +155,12 @@ test('pipeline propagates deadline cancellation without changing GameAgent contr
 test('reject remote endpoints and unqualified models', () => {
   assert.throws(() => new OpenCodeAgent({ baseUrl: 'https://example.com', model: 'test/vision', timeoutMs: 1 }), /localhost/)
   assert.throws(() => new OpenCodeAgent({ model: 'vision', timeoutMs: 1 }), /provider\/model/)
+})
+test('private referee configuration does not inject the maximum-steps prompt on its first inference', async () => {
+  const config = JSON.parse(await readFile(new URL('../opencode.json', import.meta.url), 'utf8'))
+  assert.equal(config.agent['card-referee'].steps, 2)
+  assert.deepEqual(config.permission, { '*': 'deny' })
+  assert.deepEqual(config.tools, { '*': false })
 })
 test('normal room creation refuses generated engines without explicit trusted-local opt-in', async () => {
   const old = process.env.CARDS_ALLOW_GENERATED_ENGINE

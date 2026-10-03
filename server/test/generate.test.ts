@@ -99,6 +99,7 @@ test('cards that are too long or repeat existing ones are dropped; none left is 
   await rooms.handle(a.connection, { type: 'generateCards', count: 2 })
   await settle(room)
   assert.equal(room.cards.length, 1)
+  assert.match(JSON.stringify(room.thread), /Only 1 of 2 requested cards/)
   assert.equal(room.cards[0].title, 'A title that is far too long to fit on a card'.slice(0, config.card.titleMaxChars).trim())
   batch = [{ title: 'Long', text: long, doodle: [] }]
   a.messages.length = 0
@@ -167,4 +168,30 @@ test('doodles render as black ink on white', async () => {
   }
   assert.equal(ink(blank), 0)
   assert.ok(ink(drawn) > 1000)
+})
+
+test('generation deadline cancels the writer, clears pending, ignores late cards and allows retry', async t => {
+  let signal: AbortSignal | undefined
+  let finish!: (cards: GeneratedCard[]) => void
+  let calls = 0
+  const agent = Object.assign(new MockAgent(), { generateCards: async (_input: GenerateInput, cancellation?: AbortSignal) => {
+    calls++
+    signal = cancellation
+    if (calls === 1) return new Promise<GeneratedCard[]>(resolve => { finish = resolve })
+    return [{ title: 'Retry', text: 'retry works', doodle: [] }]
+  } })
+  const { rooms, room, a } = await setup(t, agent)
+  room.config.agent.timeoutMs = 30
+  await rooms.handle(a.connection, { type: 'generateCards', count: 1 })
+  await settle(room)
+  assert.equal(signal?.aborted, true)
+  assert.equal(room.generating, null)
+  assert.equal(room.cards.length, 0)
+  assert.ok(a.messages.some(m => m.type === 'error' && /took too long/.test(m.message)))
+  await rooms.handle(a.connection, { type: 'generateCards', count: 1 })
+  await settle(room)
+  finish([{ title: 'Late', text: 'must not arrive', doodle: [] }])
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(room.cards.map(c => c.text), ['retry works'])
+  assert.equal(room.generated, 1)
 })

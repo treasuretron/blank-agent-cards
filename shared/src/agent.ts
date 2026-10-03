@@ -33,5 +33,5 @@ export interface GameAgent {
   // Markdown advice for making fast mode faster, from the game's notes.
   report?(input: ReportInput): Promise<string>
   // Writes new cards on request. The server validates and trims the result.
-  generateCards?(input: GenerateInput): Promise<GeneratedCard[]>
+  generateCards?(input: GenerateInput, signal?: AbortSignal): Promise<GeneratedCard[]>
 }
