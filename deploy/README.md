@@ -61,6 +61,15 @@ Local development still defaults to the game server's port 8787.
 
 ## Lifecycle
 
+The live services run from a dedicated checkout, `/home/ubuntu/cards-live`
+(detached at `master`), bind-mounted read-only at `/opt/cards`. Work-in-progress
+checkouts never go live by accident. To ship `master`:
+
+```sh
+cd /home/ubuntu/cards-live && git checkout --detach master
+bash deploy/control.sh restart && bash deploy/control.sh build && bash deploy/control.sh health
+```
+
 From the repository root:
 
 ```sh
