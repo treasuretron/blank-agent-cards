@@ -299,17 +299,17 @@ Open question: should imported cards be allowed to exceed the quota?
   long the turn took, and whether a rollback happened.
 - **End-of-game report** — recurring mechanics, slow or failed turns, prompt and
   engine friction, and specific advice for making fast mode faster.
-- **Mechanic snippets** — when reports show mechanics that come up again and again
-  (steal points, skip turn, reverse order, draw extra, conditional scoring, etc.),
-  pull them into a curated, human-reviewed library at `game/mechanics/*.mjs`. Each
-  snippet is a small pure function with a fixed signature. In fast mode the agent can
-  then answer with `{ mechanic: "stealPoints", params: {...} }` instead of rewriting
-  `engine.mjs`: fewer tokens, fewer rollbacks.
-  The snippets are read-only to the agent, so the "agent writes one file" blast
-  radius stays the same.
+- **Mechanic snippets** — a curated, human-reviewed library of common mechanics at
+  `game/mechanics/*.mjs` (steal points, skip turns, extra turns, swap hands, timed
+  effects, ...). Engine code the agent writes can `import { stealPoints } from
+  'mechanics'` and use whichever snippets help, so a rewrite calls a known-good
+  function instead of re-deriving the logic. Cards nothing covers still get brand-new
+  code, exactly as before. Snippets are read-only to the agent, so the "agent writes
+  one file" blast radius stays the same. Learning reports name the mechanics that
+  recur; those become new snippets.
 
-*Status:* mode, learning notes and the report are implemented on branch `m7-modes`.
-Mechanic snippets are not built yet; the design question is below.
+*Status:* implemented on branch `m7-modes`: modes, learning notes, the report, and a
+starter snippet library.
 - `mode` lives in `game.config.json` (default `fast`). It can be overridden in
   `createRoom`, and the host can switch it in the studio before the deal
   (`setMode`). Saved rooms with no mode load as fast.
@@ -327,14 +327,15 @@ Mechanic snippets are not built yet; the design question is below.
   every permission denied, the same setup as `interpret`.
 - Verified by 10 server tests and a Playwright run with the mock agent. Not yet run
   against the real Space Bunny model.
-- **Snippet design question:** the engine runs in a sandboxed child process that can
-  only read its own worker file, so `engine.mjs` can't `import` from
-  `game/mechanics/`. Proposal: treat each snippet as a new *effect kind*. The worker
-  loads the reviewed snippets. Before calling `applyPlay`, it applies any effect whose
-  `kind` has a snippet and removes it from the list; the engine handles the rest. The
-  agent then just emits `{ kind: "steal-points", ... }`, the engine contract stays the
-  same, and no rewrite is needed. Trade-off: snippet effects always run before the
-  engine's own effects.
+- Snippets: the engine sandbox still rejects every import except `mechanics` and
+  `mechanics/<file>`. The worker serves those from source the server loads at
+  startup, so engine code still can't read the disk. The agent gets a one-line
+  signature catalog (`AgentInput.mechanics`), and its prompt says to prefer snippets
+  over hand-written logic. The server refuses to start if a snippet is undocumented,
+  imports anything, or reuses a name. The library is append-only, because saved room
+  engines import it by name. Rules are in `game/README.md`. It starts with 22
+  functions in `points`, `cards`, `turns`, `state`. 8 tests cover the snippets, the
+  sandbox, and a full room where a generated engine imports snippets.
 
 ## Open items
 
