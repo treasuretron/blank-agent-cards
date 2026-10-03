@@ -3,6 +3,7 @@
 import type { RoomSnapshot } from "@cards/shared"
 import Link from "next/link"
 import { useState } from "react"
+import { GenerateCards } from "@/components/cards/GenerateCards"
 import { LearningReport } from "./LearningReport"
 import { SaveCards } from "./SaveCards"
 import styles from "./game.module.css"
@@ -27,13 +28,17 @@ export function GameOver({ snap }: { snap: RoomSnapshot }) {
     )
   }
   const report = snap.learning?.report
+  const endedBy = snap.endedBy && (snap.endedBy === snap.youId ? "You" : snap.players.find((p) => p.id === snap.endedBy)?.name)
+  const top = ranked[0]?.score
+  const tied = ranked.filter((p) => p.score === top)
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="game-over-title">
       <div className={styles.overlayCard}>
         <h2 id="game-over-title" className={styles.overlayTitle}>
-          {winner ? (winner.id === snap.youId ? "You win!" : `${winner.name} wins!`) : "Nobody wins."}
+          {winner ? (winner.id === snap.youId ? "You win!" : `${winner.name} wins!`) : endedBy && tied.length > 1 ? "It's a tie!" : "Nobody wins."}
         </h2>
-        {!winner && <p>No playable hands remain.</p>}
+        {endedBy ? <p>{endedBy} ended the game.{!winner && tied.length > 1 && ` ${tied.map((p) => p.name).join(" and ")} share the top score.`}</p> : !winner && <p>No playable hands remain.</p>}
+        {!winner && !endedBy && <GenerateCards snap={snap} label="keep playing: the agent draws" />}
         <ol className={styles.final}>
           {ranked.map((p) => (
             <li key={p.id} className={p.id === snap.winnerId ? styles.winner : undefined}>

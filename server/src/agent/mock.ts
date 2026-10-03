@@ -1,4 +1,4 @@
-import type { AgentInput, AgentVerdict, GameAgent, Reflection, ReflectionInput, ReportInput } from '@cards/shared'
+import type { AgentInput, AgentVerdict, GameAgent, GeneratedCard, GenerateInput, Reflection, ReflectionInput, ReportInput } from '@cards/shared'
 
 export class MockAgent implements GameAgent {
   constructor(private readonly script?: (input: AgentInput) => AgentVerdict | Promise<AgentVerdict>) {}
@@ -31,4 +31,24 @@ export class MockAgent implements GameAgent {
   async report(input: ReportInput): Promise<string> {
     return `Mock advice for ${input.gameCode} over ${input.notes.length} plays: every ruling used built-in effects.`
   }
+
+  // Stand-in card writer: cards that interpret() above understands, each with a
+  // random zigzag doodle, skipping any text already in the room.
+  async generateCards(input: GenerateInput): Promise<GeneratedCard[]> {
+    const taken = new Set(input.existing.map(c => c.text.toLowerCase()))
+    const cards: GeneratedCard[] = []
+    for (let i = 0; cards.length < input.count; i++) {
+      const [title, base] = mockCards[i % mockCards.length]
+      const text = i < mockCards.length ? base : `${base} (${Math.floor(i / mockCards.length) + 1})`
+      if (taken.has(text.toLowerCase())) continue
+      taken.add(text.toLowerCase())
+      cards.push({ title, text, doodle: [Array.from({ length: 8 }, (_, j) => j % 2 ? 30 + Math.random() * 40 : 10 + j * 10)] })
+    }
+    return cards
+  }
 }
+
+const mockCards: [string, string][] = [
+  ['Lucky Penny', '+5 points'], ['Jackpot', '+20 points'], ['Oops', '-5 points'], ['Second Helping', 'Draw 2 cards'],
+  ['U-Turn', 'Reverse the order of play'], ['Snooze', 'Skip the next player'], ['Moving Goalposts', 'Set the target score to 150'],
+]

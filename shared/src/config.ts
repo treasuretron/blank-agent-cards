@@ -24,6 +24,11 @@ const ConfigFieldsSchema = z.object({
     maxRollbackRetries: z.number().int().min(0),
     timeoutMs: z.number().int().positive(),
   }),
+  // Agent-written cards: how many one request may ask for, and in total per room.
+  // Defaulted so rooms saved before this setting existed still load.
+  generate: z
+    .object({ maxPerRequest: z.number().int().min(1), maxPerRoom: z.number().int().min(0) })
+    .default({ maxPerRequest: 4, maxPerRoom: 40 }),
   server: z.object({ port: z.number().int().positive().max(65535) }),
 })
 export const GameConfigSchema = ConfigFieldsSchema.superRefine((config, ctx) => {

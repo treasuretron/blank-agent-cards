@@ -225,6 +225,24 @@ test('card compositing validates PNG and text; output is opaque binary PNG with 
   assert.notEqual(png, blankText)
 })
 
+test('card text up to maxChars shrinks to fit inside the card', async () => {
+  const pixelsOf = async (png: string) => {
+    const image = await loadImage(Buffer.from(png.split(',')[1], 'base64'))
+    const ctx = createCanvas(image.width, image.height).getContext('2d')
+    ctx.drawImage(image, 0, 0)
+    return ctx.getImageData(0, 0, image.width, image.height).data
+  }
+  const full = 'W'.repeat(config.card.maxChars - 1)
+  const withLast = await pixelsOf(await composeCard({ ...draft, text: full + 'W' }, config.card))
+  const withoutLast = await pixelsOf(await composeCard({ ...draft, text: full + '.' }, config.card))
+  // The final character is drawn, so it was not pushed off the bottom...
+  assert.notDeepEqual(withLast, withoutLast)
+  // ...and nothing is drawn in the bottom margin.
+  const margin = Math.max(8, Math.round(config.card.widthPx * .04))
+  const bottom = withLast.subarray((config.card.heightPx - margin) * config.card.widthPx * 4)
+  assert.ok(bottom.every(value => value === 255))
+})
+
 test('actual websocket create/join/resume and HTTP protected image endpoint', async t => {
   const directory = await mkdtemp('/tmp/opencode/cards-http-')
   const app = await createGameServer({ config, directory })

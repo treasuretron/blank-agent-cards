@@ -19,7 +19,7 @@
       "description": "Tool-free card game referee",
       "mode": "primary",
       "permission": { "*": "deny" },
-      "steps": 1
+      "steps": 2
     }
   }
 }

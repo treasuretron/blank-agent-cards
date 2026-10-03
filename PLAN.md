@@ -93,7 +93,7 @@ planning sketches. Shared type-checking and all six contract tests pass. M1 can 
   "cardsPerPlayer": 4,
   "handSize": 3,
   "targetScore": 100,
-  "card": { "widthPx": 480, "heightPx": 720, "maxChars": 140, "titleMaxChars": 24 },
+  "card": { "widthPx": 480, "heightPx": 720, "maxChars": 300, "titleMaxChars": 24 },
   "agent": { "provider": "mock", "maxRollbackRetries": 1, "timeoutMs": 60000 }
 }
 ```
@@ -201,6 +201,7 @@ stall on it.
 | **M5** | Deploy to `hackathon-drive`, player auth, persistence, key rotation | A + C | M1–M4 |
 | **M6** | End-of-game card saving + import into new games | Agent (branch `m6-save-cards`) | M1–M3 |
 | **M7** | Fast mode / learning mode, learning reports, reusable mechanic snippets | Agent (branch `m7-modes`) | M4 |
+| **M8** | Agent-written cards: "let the agent draw" in the studio and mid-game | Agent (branch `generate-cards`) | M4 |
 
 M1, M2, M3 run in parallel once M0 lands. M6 and M7 are independent of each other.
 
@@ -336,6 +337,41 @@ starter snippet library.
   engines import it by name. Rules are in `game/README.md`. It starts with 22
   functions in `points`, `cards`, `turns`, `state`. 8 tests cover the snippets, the
   sandbox, and a full room where a generated engine imports snippets.
+
+**M8 — Agent-written cards.** A player can ask the agent to write N cards: in the
+studio when they're tired of drawing, or mid-game when the deck runs low.
+- **Studio:** the cards fill the requester's quota and are private to them until the
+  deal, like hand-drawn cards. They're marked "by the agent".
+- **Play:** the cards are shuffled into the deck, and any player with an empty hand
+  draws back up to `rules.handSize`. If the game had ended because nobody had cards
+  left (no winner), the game-over screen offers the same control, and new cards
+  restart play.
+- **What the agent sees:** `EXAMPLE_CARDS` in `shared/src/generate.ts` (the zinc card
+  quoted on Wikipedia, plus about 20 written for this game in the same style), up to 30
+  server-library cards, the room's last 60 cards, and, mid-game, the rules and the last
+  10 plays.
+- **Art:** the model outputs text only, so each card comes with a `doodle`: up to 16
+  polylines on a 0–100 square. The server draws them in black (`renderDoodle` in
+  `server/src/cards.ts`) and composites the card like a drawn one.
+- **Limits:** `game.config.json` `generate.maxPerRequest` (4) and `generate.maxPerRoom`
+  (40). One request per room at a time. It runs outside the room queue, so chat and
+  plays carry on while the agent writes. A restart drops an in-flight request. Cards
+  that are too long, or repeat a card already in the room, are dropped.
+- `GameAgent.generateCards` is optional. The mock writes cards its own interpreter
+  understands. OpenCode uses a text-only throwaway session, the same setup as reflect.
+- **Known gap:** reviving a learning-mode game leaves its end-of-game report as
+  written at the first ending.
+- *Status:* built on branch `generate-cards`, on top of `m7-modes`. Verified by 9 server
+  tests, 1 shared and 3 web tests, and a Playwright run with the mock agent. Not yet run
+  against the real model.
+
+**End game.** Any player can end a game in play: "end game" in the table header,
+then a confirm. The top score wins; a tie at the top has no winner. The game-over
+screen opens for everyone, so cards can be saved as usual. If the agent is mid-ruling,
+the game ends once that ruling lands. A game ended this way can't be restarted with
+agent-drawn cards. In learning mode, the report is written as usual.
+*Status:* branch `end-game`, on top of `integration`. Covered by 4 server tests, 1 web
+test and a Playwright run.
 
 ## Open items
 

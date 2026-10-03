@@ -23,6 +23,8 @@ export type Card = {
   title?: string
   text: string
   png: string
+  // Written by the agent at authorId's request rather than drawn by a player.
+  byAgent?: boolean
 }
 
 // What the engine sees: everything but the image.

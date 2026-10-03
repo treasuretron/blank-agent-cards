@@ -53,3 +53,23 @@ test('report returns the model text as markdown', async t => {
   assert.equal(await agent.report({ gameCode: 'ABCD', notes: [], stats: 'n/a' }), '- make `steal-points` a snippet')
   assert.match(requests.find(r => r.path.endsWith('/message'))!.body.system, /writing advice/)
 })
+
+test('generateCards sends a text-only prompt with examples and validates the cards', async t => {
+  const cards = [{ title: 'Moon', text: '+10 points if it is night', doodle: [[20, 20, 80, 80]] }, { title: 'Sun', text: 'Reverse play' }]
+  const { agent, requests } = await mock(t, JSON.stringify({ cards }))
+  const request = { count: 2, limits: { titleMaxChars: 24, maxChars: 140 }, examples: [{ title: 'Nap', text: 'Skip the next player' }], existing: [], rules: null, history: [] }
+  assert.deepEqual(await agent.generateCards(request), [cards[0], { ...cards[1], doodle: [] }])
+  const prompt = requests.find(r => r.path.endsWith('/message'))!.body
+  assert.equal(prompt.parts.length, 1)
+  assert.deepEqual(prompt.tools, { '*': false })
+  assert.match(prompt.system, /1000 Blank White Cards/)
+  const sent = JSON.parse(prompt.parts[0].text)
+  assert.deepEqual(sent.context, request)
+  assert.ok(sent.schema.properties.cards)
+  assert.equal(requests.find(r => r.path === '/session')!.body.title, 'Card writing')
+})
+
+test('generateCards rejects malformed doodles', async t => {
+  const { agent } = await mock(t, JSON.stringify({ cards: [{ title: 'Bad', text: 'x', doodle: [[1, 2, 3]] }] }))
+  await assert.rejects(agent.generateCards({ count: 1, limits: { titleMaxChars: 24, maxChars: 140 }, examples: [], existing: [], rules: null, history: [] }))
+})

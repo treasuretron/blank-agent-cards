@@ -39,3 +39,4 @@
 .mode { display: flex; gap: 8px; align-items: center; margin: 12px 0 0; }
 .mode span { color: var(--muted); }
 .mode button:disabled[aria-pressed="true"] { opacity: 1; cursor: default; }
+.subhead { font-size: 1.1rem; margin: 14px 0 4px; }

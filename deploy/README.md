@@ -61,6 +61,18 @@ Local development still defaults to the game server's port 8787.
 
 ## Lifecycle
 
+The live services run from a dedicated checkout, `/home/ubuntu/cards-live`
+(detached Git baseline), bind-mounted read-only at `/opt/cards`. Work-in-progress
+checkouts never go live by accident. The live checkout can contain uncommitted
+hotfixes: inspect and integrate them into source before updating its snapshot.
+Do not replace the checkout or switch revisions over those fixes. Build from
+the integrated live source:
+
+```sh
+bash /home/ubuntu/cards-live/deploy/control.sh build
+bash /home/ubuntu/cards-live/deploy/control.sh health
+```
+
 From the repository root:
 
 ```sh
@@ -184,6 +196,38 @@ Changing OpenCode configuration requires restarting `cards-agent`; changing the
 model/launcher requires restarting `cards-game`. Config is not hot-reloaded.
 
 ## Verification And Gaps
+
+### Integrated Release (2026-10-03)
+
+The M7 workspace now includes the integrated card-writing and end-game features,
+the larger selected-hand preview, and the previously live-only timeout fixes.
+Card writing uses one 90-second deadline across one malformed-output retry,
+propagates cancellation, retains valid siblings, and reports partial additions.
+The tool-free referee uses `steps: 2` to avoid the first-inference maximum-steps
+instruction; permissions and tools remain denied.
+
+Checks: 73 server, 7 shared, 21 web tests and the gateway regression pass, along
+with shared/server/web typechecks. The generated web typecheck cache is not a
+release input. Credentials and room state remain outside source snapshots.
+
+The supported live webpack snapshot build passed. Public HTTPS login, ten
+protected assets, WSS and CSRF checks passed before and after cleanup. Space
+Bunny wrote all four requested cards in 39.7 seconds; protected PNGs, persistence,
+two-player join/deal, end-game and seat resume passed. Cleanup waited for idle
+inference and removed only its own room; all three other room files were
+byte-identical. The backend already matched the integrated source, so the agent
+was not restarted and its loaded configuration/password were preserved.
+
+```sh
+sudo node --import tsx deploy/generate-verify.ts 4
+sudo node deploy/generate-service-verify.mjs
+sudo node deploy/cleanup-verify.mjs TEST # use only the printed verification code
+```
+
+The public service check creates its own room, checks four real agent cards,
+protected PNGs, a second player, dealing, end-game and seat resume without
+restarting services. It prints only the test room code and metrics. Remove only
+that room while the game is stopped, after active inference has drained.
 
 Current live verification passes application HTTP/WS authentication, secure cookie
 attributes/signatures/expiry, foreign/missing Origin rejection, logout, login
